@@ -28,16 +28,16 @@ jobs:
           cd agent
           pyinstaller --onefile --name NetworkMonitorAgent --noconsole windows_agent.py
 
-      - name: Upload .exe artifact
-        uses: actions/upload-artifact@v4
+      - name: Upload .exe to release
+        uses: softprops/action-gh-release@v2
         with:
-          name: NetworkMonitorAgent-exe
-          path: agent/dist/NetworkMonitorAgent.exe
-          retention-days: 30
+          files: agent/dist/NetworkMonitorAgent.exe
+          tag_name: v0.1
+          name: "NetworkMonitorAgent v0.1"
+          body: "企业网络监控 Windows 安装包
+          
+直接下载 NetworkMonitorAgent.exe，双击运行即可。
 
-      - name: Upload all artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-artifacts
-          path: agent/dist/
-          retention-days: 30
+首次运行会弹出设置向导，填写企业名称后自动完成注册。"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
