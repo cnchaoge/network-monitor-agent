@@ -1,0 +1,43 @@
+name: Build Windows .exe
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pystray pillow pyinstaller
+
+      - name: Build .exe
+        run: |
+          cd agent
+          pyinstaller --onefile --name NetworkMonitorAgent --noconsole windows_agent.py
+
+      - name: Upload .exe artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: NetworkMonitorAgent-exe
+          path: agent/dist/NetworkMonitorAgent.exe
+          retention-days: 30
+
+      - name: Upload all artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-artifacts
+          path: agent/dist/
+          retention-days: 30
