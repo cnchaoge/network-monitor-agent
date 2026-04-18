@@ -1,57 +1,53 @@
-# 企业网络监控平台
+# 企业网络监控平台 v0.2
 
-## 项目结构
+## 功能特性
+
+- **多用户体系**：企业主独立账号，仅查看自己公司的网络数据
+- **实时推送**：设备上报数据后，管理后台立即刷新（无需等待轮询）
+- **微信报警**：网络离线超过3分钟自动推送微信通知（Server酱）
+- **状态指示灯**：网关延迟/丢包率/DNS/目标可达性，颜色直观显示正常/警告/故障
+- **自主注册**：企业主扫码注册，无需人工干预
+- **手机端**：适配手机，扫码即看，随时随地掌握网络状态
+
+## 安装包下载
+
+**v0.2 Windows 安装包：**
+https://github.com/cnchaoge/network-monitor-agent/releases/download/v0.2/NetworkMonitorAgent.exe
+
+## 快速开始
+
+### 企业主
+1. 打开安装页：http://82.156.229.67:8000/setup
+2. 注册账号，下载安装包
+3. 双击运行，填写企业名称完成注册
+4. 手机访问 http://82.156.229.67:8000/mobile 登录查看
+
+### 管理员
+- 管理后台：http://82.156.229.67:8000
+- 手机端：http://82.156.229.67:8000/mobile
+
+## 技术架构
 
 ```
-network-monitor/
-├── server/                  # 云服务器端
-│   ├── main.py
-│   └── requirements.txt
-├── agent/                   # 客户端 Agent
-│   ├── agent.py            # 通用版（Linux/Mac）
-│   ├── windows_agent.py     # Windows 版（托盘 + 开机自启）
-│   ├── build.bat           # Windows 打包脚本
-│   ├── requirements.txt    # pip 依赖
-│   └── README.md           # 本文件
-└── README.md               # 项目说明
+客户端 Agent (Windows exe)
+    ↓ 每60秒上报
+腾讯云服务器 (82.156.229.67:8000)
+    ↓ FastAPI + SQLite
+管理后台 / 手机端 / 微信报警
 ```
 
-## 服务端部署
+## 版本记录
 
-已在腾讯云部署：
-- 地址: http://82.156.229.67:8000
-- 管理后台: http://82.156.229.67:8000
-- 手机端: http://82.156.229.67:8000/mobile
+| 版本 | 日期 | 更新 |
+|------|------|------|
+| v0.1 | 2026-04-18 | 基础功能上线（服务端+管理后台+手机端+自注册Exe）|
+| v0.2 | 2026-04-18 | 用户认证+实时推送+状态指示灯+微信报警 |
 
-## Windows Agent 部署步骤
+## 报警阈值
 
-1. 把 `agent/` 目录里的 `windows_agent.py` 复制到客户 Windows 电脑
-2. 安装 Python（python.com 下载，安装时勾选 Add to PATH）
-3. 安装依赖：`pip install pystray pillow pyinstaller`
-4. 运行打包脚本：`build.bat`
-5. 双击生成的 `NetworkMonitorAgent.exe` 即可运行
-
-### 开机自启
-
-把 `NetworkMonitorAgent.exe` 复制到：
-```
-%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\
-```
-
-## 路由器部署
-
-- 如果是 OpenWrt 路由器，可以装 Python 包
-- 否则建议在内网找一台常年开机的 Windows PC 部署 Agent
-
-## 手机端
-
-直接访问 `http://82.156.229.67:8000/mobile?id=AGENT_ID`
-
-## API
-
-- `POST /api/register` - 注册 Agent
-- `POST /api/{id}/report` - 上报数据
-- `GET /api/{id}/latest` - 最新数据
-- `GET /api/{id}/history` - 历史记录
-- `GET /api/agents` - 所有设备列表
-- `GET /health` - 健康检查
+| 指标 | 警告 | 严重 |
+|------|------|------|
+| 网关延迟 | >80ms | >150ms |
+| 丢包率 | >5% | >20% |
+| DNS延迟 | >100ms | >300ms |
+| 目标延迟 | >100ms | >300ms |
