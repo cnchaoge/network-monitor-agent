@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>网络监控平台</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f5f5f7; color: #1d1d1f; padding: 32px; }
@@ -11,9 +12,9 @@ h1 { font-size: 22px; font-weight: 600; margin-bottom: 4px; }
 .subtitle { font-size: 12px; color: #86868b; margin-bottom: 24px; }
 .card { background: #fff; border: 1px solid #e5e5ea; border-radius: 12px; padding: 20px; margin-bottom: 16px; }
 .card-title { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
-.card-meta { font-size: 11px; color: #86868b; margin-bottom: 10px; }
+.card-meta { font-size: 11px; color: #86868b; margin-bottom: 4px; }
 .online { color: #34c759; } .offline { color: #ff3b30; }
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
 .row { display: flex; justify-content: space-between; padding: 5px 0; font-size: 13px; border-bottom: 1px solid #f0f0f0; }
 .row:last-child { border-bottom: none; }
 .label { color: #86868b; }
@@ -21,6 +22,25 @@ h1 { font-size: 22px; font-weight: 600; margin-bottom: 4px; }
 .refresh-btn:hover { opacity: 0.8; }
 .btn { background: none; border: 1px solid #d2d2d7; border-radius: 8px; padding: 6px 14px; font-size: 13px; cursor: pointer; }
 .empty { text-align: center; padding: 48px; color: #86868b; }
+.qr-section { margin-top: 12px; padding-top: 12px; border-top: 1px solid #f0f0f0; display: flex; align-items: center; gap: 10px; }
+.qr-label { font-size: 11px; color: #86868b; white-space: nowrap; }
+.qr-img { width: 64px; height: 64px; border: 1px solid #f0f0f0; border-radius: 6px; }
+.qr-link { font-size: 11px; color: #007aff; word-break: break-all; cursor: pointer; }
+.chart-wrap { margin-top: 12px; }
+.chart-wrap canvas { max-height: 140px; }
+.metrics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; margin: 10px 0; }
+.metric-item { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.metric-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.dot-green { background: #34c759; box-shadow: 0 0 5px rgba(52,199,89,0.5); }
+.dot-orange { background: #ff9500; box-shadow: 0 0 5px rgba(255,149,0,0.5); }
+.dot-red { background: #ff3b30; box-shadow: 0 0 5px rgba(255,59,48,0.5); }
+.dot-grey { background: #d2d2d7; }
+.metric-label { color: #86868b; min-width: 50px; }
+.metric-value { font-weight: 600; font-size: 12px; }
+.val-green { color: #34c759; }
+.val-orange { color: #ff9500; }
+.val-red { color: #ff3b30; }
+.val-grey { color: #aeaeb2; }
 </style>
 </head>
 <body>
@@ -33,6 +53,36 @@ h1 { font-size: 22px; font-weight: 600; margin-bottom: 4px; }
 var SERVER = location.origin;
 document.getElementById('server-url').textContent = SERVER;
 
+// 阈值配置
+var THRESHOLDS = {
+  ping_rtt_ms:   { warn: 80,  crit: 150,  unit: 'ms',  label: '网关延迟' },
+  ping_loss_pct: { warn: 5,   crit: 20,   unit: '%',   label: '丢包率' },
+  dns_ms:        { warn: 100, crit: 300,  unit: 'ms',  label: 'DNS延迟' },
+  target_rtt_ms: { warn: 100, crit: 300,  unit: 'ms',  label: '目标延迟' },
+};
+
+function barColor(v, warn, crit) {
+  if (v === null || v === undefined || isNaN(v)) return '#d2d2d7'; // 灰色-无数据
+  if (v >= crit) return '#ff3b30';   // 红色-严重
+  if (v >= warn) return '#ff9500';   // 橙色-警告
+  return '#34c759';                  // 绿色-正常
+}
+
+function bgColor(v, warn, crit) {
+  if (v === null || v === undefined || isNaN(v)) return '#f0f0f0';
+  if (v >= crit) return 'rgba(255,59,48,0.15)';
+  if (v >= warn) return 'rgba(255,149,0,0.15)';
+  return 'rgba(52,199,89,0.1)';
+}
+
+// 存储 chart 实例，reload 时销毁
+var chartInstances = {};
+
+function destroyCharts() {
+  Object.values(chartInstances).forEach(function(c) { c.destroy(); });
+  chartInstances = {};
+}
+
 function timeAgo(ts) {
   var s = Math.floor(Date.now()/1000 - ts);
   if (s < 60) return s + '秒前';
@@ -41,13 +91,111 @@ function timeAgo(ts) {
 }
 
 function fmt(v, dec) {
-  if (v === null || v === undefined) return '-';
+  if (v === null || v === undefined || isNaN(v)) return '-';
   return v.toFixed(dec);
+}
+
+function copyText(text) {
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(text).then(function() { alert('链接已复制'); });
+  } else {
+    prompt('复制链接:', text);
+  }
+}
+
+function drawChart(canvasId, latest) {
+  var ctx = document.getElementById(canvasId);
+  if (!ctx) return;
+
+  var metrics = [
+    { key: 'ping_rtt_ms',    label: '网关延迟' },
+    { key: 'ping_loss_pct', label: '丢包率' },
+    { key: 'dns_ms',         label: 'DNS延迟' },
+    { key: 'target_rtt_ms', label: '目标延迟' },
+  ];
+
+  var labels = [];
+  var values = [];
+  var colors = [];
+  var bgColors = [];
+
+  metrics.forEach(function(m) {
+    var v = latest ? latest[m.key] : null;
+    var t = THRESHOLDS[m.key];
+    labels.push(t.label);
+    values.push(v !== null && v !== undefined ? parseFloat(v.toFixed(1)) : 0);
+    colors.push(barColor(v, t.warn, t.crit));
+    bgColors.push(bgColor(v, t.warn, t.crit));
+  });
+
+  if (chartInstances[canvasId]) {
+    chartInstances[canvasId].destroy();
+  }
+
+  chartInstances[canvasId] = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: labels,
+      datasets: [{
+        data: values,
+        backgroundColor: bgColors,
+        borderColor: colors,
+        borderWidth: 1.5,
+        borderRadius: 4,
+      }]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: true,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: function(ctx) {
+              var v = ctx.raw;
+              var t = metrics[ctx.dataIndex];
+              return v > 0 ? t.label + ': ' + v + (t.unit || '') : t.label + ': 无数据';
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          grid: { color: '#f0f0f0' },
+          ticks: { font: { size: 10 }, color: '#86868b' }
+        },
+        y: {
+          grid: { display: false },
+          ticks: { font: { size: 11 }, color: '#1d1d1f' }
+        }
+      }
+    }
+  });
+}
+
+function metricDot(v, warn, crit) {
+  if (v === null || v === undefined || isNaN(v)) return { dot: 'dot-grey', val: 'val-grey', text: '-' };
+  if (v >= crit) return { dot: 'dot-red', val: 'val-red', text: v };
+  if (v >= warn) return { dot: 'dot-orange', val: 'val-orange', text: v };
+  return { dot: 'dot-green', val: 'val-green', text: v };
+}
+
+function metricItem(v, warn, crit, label, unit) {
+  var m = metricDot(v, warn, crit);
+  var text = m.text === '-' ? '-' : m.text + (unit || '');
+  return '<div class="metric-item">' +
+    '<span class="metric-dot ' + m.dot + '"></span>' +
+    '<span class="metric-label">' + label + '</span>' +
+    '<span class="metric-value ' + m.val + '">' + text + '</span>' +
+    '</div>';
 }
 
 function load() {
   var grid = document.getElementById('grid');
   grid.innerHTML = '<div class="empty">加载中...</div>';
+  destroyCharts();
+
   var xhr = new XMLHttpRequest();
   xhr.open('GET', SERVER + '/api/agents', true);
   xhr.onload = function() {
@@ -58,7 +206,6 @@ function load() {
         return;
       }
       var html = '';
-      var count = 0;
       agents.forEach(function(agent) {
         var xhr2 = new XMLHttpRequest();
         xhr2.open('GET', SERVER + '/api/' + agent.id + '/latest', false);
@@ -70,22 +217,29 @@ function load() {
         var isOnline = latest && (Date.now()/1000 - latest.timestamp) < 300;
         var ago = latest ? timeAgo(latest.timestamp) : '无数据';
         var status = isOnline ? '<span class="online">● 在线</span>' : '<span class="offline">● 离线</span>';
-        var ping = latest ? fmt(latest.ping_rtt_ms, 1) + ' ms' : '-';
-        var loss = latest ? fmt(latest.ping_loss_pct, 0) + '%' : '-';
-        var dns = latest ? fmt(latest.dns_ms, 1) : '-';
-        var tgt = latest ? (latest.target_name || '-') : '-';
-        var tgtRtt = latest && latest.target_rtt_ms ? fmt(latest.target_rtt_ms, 1) + ' ms' : '-';
+        // 四个指标
+        var pRtt = latest ? latest.ping_rtt_ms : null;
+        var pLoss = latest ? latest.ping_loss_pct : null;
+        var dns = latest ? latest.dns_ms : null;
+        var tgtRtt = latest ? latest.target_rtt_ms : null;
+        var tgtOk = latest ? latest.target_reachable : null;
+        var tgtName = latest ? (latest.target_name || '目标') : '目标';
+
         html += '<div class="card">' +
           '<div class="card-title">' + agent.name + ' ' + status + '</div>' +
           '<div class="card-meta">' + (agent.customer_name || '') + ' · ' + ago + '</div>' +
-          '<div class="row"><span class="label">网关延迟</span><span>' + ping + '</span></div>' +
-          '<div class="row"><span class="label">丢包率</span><span>' + loss + '</span></div>' +
-          '<div class="row"><span class="label">DNS延迟</span><span>' + dns + ' ms</span></div>' +
-          '<div class="row"><span class="label">' + tgt + '</span><span>' + tgtRtt + '</span></div>' +
+          '<div class="metrics-grid">' +
+            metricItem(pRtt, 80, 150, '网关延迟', 'ms') +
+            metricItem(pLoss, 5, 20, '丢包率', '%') +
+            metricItem(dns, 100, 300, 'DNS延迟', 'ms') +
+            (tgtOk === false
+              ? '<div class="metric-item"><span class="metric-dot dot-red"></span><span class="metric-label">' + tgtName + '</span><span class="metric-value val-red">不可达</span></div>'
+              : metricItem(tgtRtt, 100, 300, tgtName, 'ms')) +
+          '</div>' +
           '</div>';
-        count++;
       });
       grid.innerHTML = html || '<div class="empty">无数据</div>';
+
     } catch(e) {
       grid.innerHTML = '<div class="empty">解析失败: ' + e.message + '</div>';
     }
@@ -96,8 +250,18 @@ function load() {
   xhr.send(null);
 }
 
+// SSE 实时推送
 load();
-setInterval(load, 30000);
+var es = new EventSource(SERVER + '/api/events');
+es.onmessage = function(e) {
+  try {
+    var data = JSON.parse(e.data);
+    if (data.type === 'refresh') {
+      load(); // 有设备上报新数据，立即刷新
+    }
+  } catch(err) {}
+};
+es.onerror = function() {};
 </script>
 </body>
 </html>

@@ -97,117 +97,211 @@ body {
   color: #aeaeb2;
   font-size: 14px;
 }
+.error-card {
+  background: #fff;
+  border-radius: 16px;
+  padding: 32px 24px;
+  text-align: center;
+}
+.token-input {
+  width: 100%;
+  padding: 12px 14px;
+  font-size: 15px;
+  border: 1px solid #d2d2d7;
+  border-radius: 10px;
+  outline: none;
+  margin: 12px 0;
+  font-family: monospace;
+  letter-spacing: 1px;
+}
+.token-input:focus { border-color: #007aff; }
+.agent-list {
+  list-style: none;
+}
+.agent-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 0;
+  border-bottom: 1px solid #f0f0f0;
+  cursor: pointer;
+}
+.agent-item:last-child { border-bottom: none; }
+.agent-item:active { background: #f5f5f7; }
+.agent-name { font-size: 15px; font-weight: 500; }
+.agent-id { font-size: 11px; color: #86868b; margin-top: 2px; }
+.agent-arrow { color: #aeaeb2; font-size: 18px; }
+.logout-btn {
+  display: inline-block;
+  background: none;
+  border: 1px solid #d2d2d7;
+  border-radius: 8px;
+  padding: 6px 14px;
+  font-size: 13px;
+  cursor: pointer;
+  color: #86868b;
+}
 </style>
 </head>
 <body>
 
 <div class="header">
   <h1 id="page-title">网络监控</h1>
-  <p class="sub" id="page-sub">加载中...</p>
+  <p class="sub" id="page-sub"></p>
 </div>
 
-<button class="refresh-btn" onclick="loadData()">刷新状态</button>
-
-<div id="content">
-  <div class="loading">加载中...</div>
+<!-- 登录视图 -->
+<div id="view-login">
+  <div class="card">
+    <div class="error-card" style="padding:16px 0;">
+      <p style="font-size:14px;color:#86868b;margin-bottom:16px;">请输入您的登录凭证</p>
+      <input type="text" class="token-input" id="input-token" placeholder="请粘贴登录凭证" style="text-align:center;">
+      <button class="refresh-btn" onclick="doLogin()">登录</button>
+    </div>
+  </div>
+  <div class="card">
+    <p style="font-size:13px;color:#86868b;line-height:1.7;">
+      还没有账号？<a href="/setup" style="color:#007aff;">点击这里注册</a>
+    </p>
+  </div>
 </div>
 
-<div class="last-update" id="last-update"></div>
+<!-- 设备选择视图 -->
+<div id="view-agents" class="hidden">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+    <span style="font-size:13px;color:#86868b;">选择要查看的设备</span>
+    <button class="logout-btn" onclick="logout()">切换账号</button>
+  </div>
+  <div class="card">
+    <ul class="agent-list" id="agent-list">
+      <li class="loading">加载中...</li>
+    </ul>
+  </div>
+</div>
+
+<!-- 设备监控视图 -->
+<div id="view-monitor" class="hidden">
+  <button class="refresh-btn" onclick="loadData()">刷新状态</button>
+  <div id="content">
+    <div class="loading">加载中...</div>
+  </div>
+  <div class="last-update" id="last-update"></div>
+  <button class="logout-btn" onclick="showAgents()" style="display:block;margin:12px auto 0;">← 返回设备列表</button>
+</div>
 
 <script>
 var SERVER = location.origin;
-var AGENT_ID = null;
+var TOKEN = localStorage.getItem("nm_token") || null;
+var CURRENT_AGENT = null;
 
-// 从 URL 参数读取 agent_id，如 ?id=abc123
-var urlParams = new URLSearchParams(location.search);
-AGENT_ID = urlParams.get('id');
-
-// 如果没有 id，显示设备列表让用户选择
-if (!AGENT_ID) {
-  showAgentList();
-} else {
-  loadData();
-  setInterval(loadData, 30000);
+function getHeaders() {
+  return TOKEN ? {"Authorization": "Bearer " + TOKEN} : {};
 }
 
-function showAgentList() {
-  document.getElementById('page-title').textContent = '选择设备';
-  document.getElementById('page-sub').textContent = '请选择要查看的设备';
-  document.getElementById('content').innerHTML = '<div class="loading">加载设备列表...</div>';
+function showView(id) {
+  document.getElementById('view-login').classList.add('hidden');
+  document.getElementById('view-agents').classList.add('hidden');
+  document.getElementById('view-monitor').classList.add('hidden');
+  if (id) document.getElementById(id).classList.remove('hidden');
+}
+
+function logout() {
+  localStorage.removeItem("nm_token");
+  localStorage.removeItem("nm_agent_id");
+  TOKEN = null;
+  CURRENT_AGENT = null;
+  document.getElementById('input-token').value = '';
+  showView('view-login');
+}
+
+function doLogin() {
+  var token = document.getElementById('input-token').value.trim();
+  if (!token) { alert('请输入登录凭证'); return; }
+  TOKEN = token;
+  localStorage.setItem("nm_token", token);
+  loadMe();
+}
+
+function loadMe() {
   var xhr = new XMLHttpRequest();
-  xhr.open('GET', SERVER + '/api/agents', true);
-  xhr.onload = function() {
-    try {
-      var agents = JSON.parse(xhr.responseText);
-      if (!agents.length) {
-        document.getElementById('content').innerHTML = '<div class="error-msg">暂无可用设备</div>';
-        return;
-      }
-      var html = '';
-      agents.forEach(function(a) {
-        var name = a.customer_name || a.name || '未知设备';
-        html += '<div class="card" onclick="location.href=\'?id=' + a.id + '\'">' +
-          '<div class="stat"><span class="stat-label">' + name + '</span><span style="color:#007aff">查看 →</span></div>' +
-          '<div class="stat"><span class="stat-label">Agent ID</span><span class="stat-value" style="font-size:12px;color:#86868b">' + a.id + '</span></div>' +
-          '</div>';
-      });
-      document.getElementById('content').innerHTML = html;
-    } catch(e) {
-      document.getElementById('content').innerHTML = '<div class="error-msg">加载失败</div>';
-    }
-  };
-  xhr.onerror = function() {
-    document.getElementById('content').innerHTML = '<div class="error-msg">网络请求失败</div>';
-  };
+  xhr.open('GET', SERVER + '/api/me', false);
+  if (TOKEN) xhr.setRequestHeader('Authorization', 'Bearer ' + TOKEN);
   xhr.send(null);
+  if (xhr.status === 200) {
+    try {
+      var data = JSON.parse(xhr.responseText);
+      localStorage.setItem("nm_token", TOKEN);
+      localStorage.setItem("nm_user_name", data.name);
+      document.getElementById('page-title').textContent = data.name;
+      document.getElementById('page-sub').textContent = '网络监控系统';
+      renderAgentList(data.agents);
+      showView('view-agents');
+    } catch(e) {
+      alert('登录失败');
+      logout();
+    }
+  } else if (xhr.status === 401) {
+    alert('登录凭证无效');
+    logout();
+  }
+}
+
+function renderAgentList(agents) {
+  var list = document.getElementById('agent-list');
+  if (!agents || !agents.length) {
+    list.innerHTML = '<li class="error-msg">暂无设备，请联系管理员添加</li>';
+    return;
+  }
+  var html = '';
+  agents.forEach(function(a) {
+    html += '<li class="agent-item" onclick="selectAgent(\'' + a.id + '\')">' +
+      '<div><div class="agent-name">' + (a.customer_name || a.name) + '</div>' +
+      '<div class="agent-id">' + a.id + '</div></div>' +
+      '<span class="agent-arrow">›</span></li>';
+  });
+  list.innerHTML = html;
+}
+
+function selectAgent(agentId) {
+  CURRENT_AGENT = agentId;
+  localStorage.setItem("nm_agent_id", agentId);
+  loadData();
+  showView('view-monitor');
 }
 
 function loadData() {
-  if (!AGENT_ID) return;
+  if (!CURRENT_AGENT) { showView('view-agents'); return; }
   var content = document.getElementById('content');
-  if (content.innerHTML.indexOf('loading') === -1) {
-    content.innerHTML = '<div class="loading">加载中...</div>';
-  }
+  content.innerHTML = '<div class="loading">加载中...</div>';
+
   var xhr = new XMLHttpRequest();
-  xhr.open('GET', SERVER + '/api/agents/' + AGENT_ID, false);
+  xhr.open('GET', SERVER + '/api/' + CURRENT_AGENT + '/latest', false);
   xhr.send(null);
-  var agent = null;
-  if (xhr.status === 200) {
-    try { agent = JSON.parse(xhr.responseText); } catch(e) {}
-  }
-
-  var xhr2 = new XMLHttpRequest();
-  xhr2.open('GET', SERVER + '/api/' + AGENT_ID + '/latest', false);
-  xhr2.send(null);
   var latest = null;
-  if (xhr2.status === 200) {
-    try { latest = JSON.parse(xhr2.responseText); } catch(e) {}
+  if (xhr.status === 200) {
+    try { latest = JSON.parse(xhr.responseText); } catch(e) {}
   }
-
-  render(agent, latest);
+  render(latest);
 }
 
-function render(agent, latest) {
-  var name = agent ? (agent.customer_name || agent.name) : '未知设备';
-  document.getElementById('page-title').textContent = name;
-  document.getElementById('page-sub').textContent = '网络监控';
+function render(latest) {
+  document.getElementById('page-title').textContent = localStorage.getItem("nm_user_name") || '网络监控';
+  document.getElementById('page-sub').textContent = CURRENT_AGENT;
 
   if (!latest) {
-    document.getElementById('content').innerHTML = '<div class="error-msg">暂无数据</div>';
+    document.getElementById('content').innerHTML = '<div class="error-msg">暂无数据，设备可能离线</div>';
     return;
   }
 
   var isOnline = (Date.now()/1000 - latest.timestamp) < 300;
   var statusText = isOnline ? '网络正常' : '网络异常';
   var ago = timeAgo(latest.timestamp);
-
   var ping = fmt(latest.ping_rtt_ms, 1);
   var loss = fmt(latest.ping_loss_pct, 0);
   var dns = fmt(latest.dns_ms, 1);
   var tgt = latest.target_name || '-';
   var tgtRtt = latest.target_rtt_ms ? fmt(latest.target_rtt_ms, 1) : '-';
   var gateway = latest.gateway_reachable ? '可达' : '不可达';
-  var targetReach = latest.target_reachable ? '可达' : '不可达';
 
   var html = '<div class="card">' +
     '<div class="status-row">' +
@@ -228,6 +322,11 @@ function render(agent, latest) {
   document.getElementById('last-update').textContent = '最后更新: ' + new Date().toLocaleTimeString('zh-CN', {hour12:false});
 }
 
+function showAgents() {
+  if (TOKEN) loadMe();
+  else showView('view-login');
+}
+
 function fmt(v, dec) {
   if (v === null || v === undefined) return '-';
   return v.toFixed(dec);
@@ -240,6 +339,27 @@ function timeAgo(ts) {
   if (s < 86400) return Math.floor(s/3600) + '小时前';
   return Math.floor(s/86400) + '天前';
 }
+
+// 初始化
+if (TOKEN) {
+  showView('view-agents');
+  loadMe();
+  // 检查 URL 是否有 agent 参数
+  var urlParams = new URLSearchParams(location.search);
+  var agentParam = urlParams.get('agent');
+  if (agentParam) {
+    selectAgent(agentParam);
+  }
+} else {
+  showView('view-login');
+}
+
+// 定期刷新
+setInterval(function() {
+  if (CURRENT_AGENT && document.getElementById('view-monitor').classList.contains('hidden') === false) {
+    loadData();
+  }
+}, 30000);
 </script>
 </body>
 </html>

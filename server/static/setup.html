@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>网络监控 - 下载安装</title>
+<title>网络监控 - 注册</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body {
@@ -26,39 +26,65 @@ body {
   box-shadow: 0 1px 3px rgba(0,0,0,0.06);
 }
 .card-title { font-size: 16px; font-weight: 600; margin-bottom: 14px; }
-.step {
-  display: flex;
-  align-items: flex-start;
-  margin-bottom: 16px;
-  font-size: 14px;
-  line-height: 1.6;
+.form-row { margin-bottom: 14px; }
+.form-row label { display: block; font-size: 13px; color: #86868b; margin-bottom: 6px; }
+.form-row input, .form-row select {
+  width: 100%;
+  padding: 10px 14px;
+  font-size: 15px;
+  border: 1px solid #d2d2d7;
+  border-radius: 10px;
+  outline: none;
+  transition: border-color 0.2s;
 }
-.step-num {
-  width: 24px; height: 24px;
+.form-row input:focus { border-color: #007aff; }
+.btn {
+  display: block;
+  width: 100%;
   background: #007aff;
   color: #fff;
-  border-radius: 50%;
-  text-align: center;
-  line-height: 24px;
-  font-size: 12px;
-  font-weight: 600;
-  flex-shrink: 0;
-  margin-right: 12px;
-}
-.step-text { color: #1d1d1f; }
-.download-btn {
-  display: block;
-  background: #34c759;
-  color: #fff;
-  text-decoration: none;
+  border: none;
   border-radius: 12px;
-  padding: 16px;
-  font-size: 17px;
+  padding: 14px;
+  font-size: 16px;
   font-weight: 600;
-  text-align: center;
+  cursor: pointer;
   margin-top: 8px;
 }
-.download-btn:active { background: #2db84d; }
+.btn:disabled { background: #aeaeb2; cursor: not-allowed; }
+.btn:active:not(:disabled) { background: #0064d0; }
+.success-card {
+  background: #fff;
+  border-radius: 16px;
+  padding: 32px 24px;
+  text-align: center;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+}
+.success-icon {
+  width: 64px; height: 64px;
+  background: #34c759;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 20px;
+  font-size: 32px;
+  color: #fff;
+}
+.success-card h2 { font-size: 20px; margin-bottom: 8px; }
+.success-card p { font-size: 14px; color: #86868b; margin-bottom: 20px; }
+.token-box {
+  background: #f5f5f7;
+  border-radius: 10px;
+  padding: 14px;
+  font-size: 13px;
+  font-family: monospace;
+  word-break: break-all;
+  color: #007aff;
+  margin: 12px 0;
+  text-align: left;
+  line-height: 1.6;
+}
 .note {
   background: #fffbe6;
   border: 1px solid #ffe58f;
@@ -68,74 +94,109 @@ body {
   color: #7a6400;
   line-height: 1.7;
   margin-top: 12px;
+  text-align: left;
 }
 .note strong { color: #d48800; }
-.footer {
-  text-align: center;
-  font-size: 12px;
-  color: #aeaeb2;
-  margin-top: 24px;
-}
+.hidden { display: none; }
+.error-msg { color: #ff3b30; font-size: 13px; margin-top: 6px; }
 </style>
 </head>
 <body>
 
 <div class="header">
   <h1>🌐 企业网络监控</h1>
-  <p>安装后网络状态尽在掌握<br>故障自动推送微信通知</p>
+  <p>注册账号，开始监控您的网络</p>
 </div>
 
-<div class="card">
-  <div class="card-title">安装步骤</div>
-
-  <div class="step">
-    <span class="step-num">1</span>
-    <span class="step-text">点击下方按钮下载安装包</span>
-  </div>
-  <div class="step">
-    <span class="step-num">2</span>
-    <span class="step-text">双击运行安装程序，首次会弹出设置窗口</span>
-  </div>
-  <div class="step">
-    <span class="step-num">3</span>
-    <span class="step-text">填写企业名称，点击确定，完成！</span>
-  </div>
-
-  <a class="download-btn" href="https://github.com/cnchaoge/network-monitor-agent/releases/latest">
-    📥 下载安装包（Windows）
-  </a>
-
-  <div class="note">
-    <strong>⚠️ 安装前请确保：</strong><br>
-    · Windows 电脑已安装 Python 3.8+（去 <strong>python.org</strong> 下载安装）<br>
-    · 安装时勾选「Add Python to PATH」<br>
-    · 运行过程请保持网络连接
+<!-- 注册表单 -->
+<div id="view-form">
+  <div class="card">
+    <div class="card-title">创建账号</div>
+    <div class="form-row">
+      <label>企业名称 *</label>
+      <input type="text" id="input-name" placeholder="例如：河北诚航科技有限公司" value="">
+    </div>
+    <div class="form-row">
+      <label>联系电话（选填）</label>
+      <input type="tel" id="input-phone" placeholder="用于接收报警通知" value="">
+    </div>
+    <button class="btn" id="btn-submit" onclick="doRegister()">注册</button>
+    <p style="font-size:12px;color:#aeaeb2;margin-top:12px;text-align:center;">
+      已有账号？<a href="/mobile" style="color:#007aff;">直接登录</a>
+    </p>
   </div>
 </div>
 
-<div class="card">
-  <div class="card-title">📱 安装完成后</div>
-  <p style="font-size:14px;color:#86868b;line-height:1.7;">
-    用手机访问以下地址，随时查看网络状态：
-  </p>
-  <p style="font-size:13px;margin-top:8px;word-break:break-all;color:#007aff;" id="mobile-hint">
-    安装完成后此处会显示您的专属链接
-  </p>
-</div>
+<!-- 注册成功 -->
+<div id="view-success" class="hidden">
+  <div class="success-card">
+    <div class="success-icon">✓</div>
+    <h2>注册成功！</h2>
+    <p>请保存好您的登录凭证（下次登录需要）</p>
+    <div class="token-box" id="show-token"></div>
+    <div class="token-box" id="show-agent-id" style="font-size:12px;color:#86868b;margin-top:8px;"></div>
+    <p style="font-size:12px;color:#aeaeb2;margin-bottom:16px;">
+      点击下方按钮，复制凭证并下载安装包
+    </p>
+    <button class="btn" id="btn-copy" onclick="copyToken()">复制凭证 → 下载安装包</button>
+  </div>
 
-<div class="footer">
-  网络监控平台 v0.1 · 技术支持
+  <div class="card" style="margin-top:12px;">
+    <div class="card-title">安装后做什么</div>
+    <div style="font-size:14px;color:#86868b;line-height:1.7;">
+      1. 下载并运行安装包<br>
+      2. 填写企业名称完成注册<br>
+      3. 返回此页面，点击上方「复制凭证」<br>
+      4. 粘贴凭证登录手机端查看监控
+    </div>
+  </div>
 </div>
 
 <script>
-var SERVER = "http://82.156.229.67:8000";
-var CONFIG_FILE = "/tmp/nm_agent_config.json";
+var SERVER = location.origin;
+var REGISTERED_TOKEN = null;
 
-// 尝试从 localStorage 获取 agent_id（exe 安装后会写入）
-var savedId = localStorage.getItem("nm_agent_id");
-if (savedId) {
-  document.getElementById("mobile-hint").textContent = SERVER + "/mobile?id=" + savedId;
-  document.getElementById("mobile-hint").style.wordBreak = "break-all";
+async function doRegister() {
+  var name = document.getElementById('input-name').value.trim();
+  var phone = document.getElementById('input-phone').value.trim();
+  if (!name) { alert('请填写企业名称'); return; }
+
+  var btn = document.getElementById('btn-submit');
+  btn.disabled = true;
+  btn.textContent = '注册中...';
+
+  try {
+    var resp = await fetch(SERVER + '/api/register', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({name: name, phone: phone})
+    });
+    var data = await resp.json();
+    if (!resp.ok) throw new Error(data.detail || '注册失败');
+
+    REGISTERED_TOKEN = data.token;
+
+    document.getElementById('show-token').textContent = data.token;
+    if (data.agent_id) {
+      document.getElementById('show-agent-id').textContent = '设备ID：' + data.agent_id + '（安装后绑定此设备）';
+    }
+    document.getElementById('view-form').classList.add('hidden');
+    document.getElementById('view-success').classList.remove('hidden');
+  } catch(e) {
+    alert('注册失败: ' + e.message);
+    btn.disabled = false;
+    btn.textContent = '注册';
+  }
+}
+
+function copyToken() {
+  var token = document.getElementById('show-token').textContent;
+  navigator.clipboard.writeText(token).then(function() {
+    window.location.href = 'https://github.com/cnchaoge/network-monitor-agent/releases/download/v0.1/NetworkMonitorAgent.exe';
+  }).catch(function() {
+    prompt('复制以下凭证后，将跳转到下载页面：', token);
+    window.location.href = 'https://github.com/cnchaoge/network-monitor-agent/releases/download/v0.1/NetworkMonitorAgent.exe';
+  });
 }
 </script>
 </body>
