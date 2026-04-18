@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>网络监控平台</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f5f5f7; color: #1d1d1f; padding: 32px; }
+h1 { font-size: 22px; font-weight: 600; margin-bottom: 4px; }
+.subtitle { font-size: 12px; color: #86868b; margin-bottom: 24px; }
+.card { background: #fff; border: 1px solid #e5e5ea; border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+.card-title { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+.card-meta { font-size: 11px; color: #86868b; margin-bottom: 10px; }
+.online { color: #34c759; } .offline { color: #ff3b30; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; }
+.row { display: flex; justify-content: space-between; padding: 5px 0; font-size: 13px; border-bottom: 1px solid #f0f0f0; }
+.row:last-child { border-bottom: none; }
+.label { color: #86868b; }
+.refresh-btn { background: #007aff; color: #fff; border: none; border-radius: 8px; padding: 8px 16px; font-size: 13px; cursor: pointer; }
+.refresh-btn:hover { opacity: 0.8; }
+.btn { background: none; border: 1px solid #d2d2d7; border-radius: 8px; padding: 6px 14px; font-size: 13px; cursor: pointer; }
+.empty { text-align: center; padding: 48px; color: #86868b; }
+</style>
+</head>
+<body>
+<h1>网络监控平台</h1>
+<p class="subtitle">托管服务 · <span id="server-url"></span></p>
+<button class="refresh-btn" onclick="load()">刷新</button>
+<hr style="margin:16px 0;border:none;border-top:1px solid #e5e5ea;">
+<div id="grid" class="grid"></div>
+<script>
+var SERVER = location.origin;
+document.getElementById('server-url').textContent = SERVER;
+
+function timeAgo(ts) {
+  var s = Math.floor(Date.now()/1000 - ts);
+  if (s < 60) return s + '秒前';
+  if (s < 3600) return Math.floor(s/60) + '分钟前';
+  return Math.floor(s/3600) + '小时前';
+}
+
+function fmt(v, dec) {
+  if (v === null || v === undefined) return '-';
+  return v.toFixed(dec);
+}
+
+function load() {
+  var grid = document.getElementById('grid');
+  grid.innerHTML = '<div class="empty">加载中...</div>';
+  var xhr = new XMLHttpRequest();
+  xhr.open('GET', SERVER + '/api/agents', true);
+  xhr.onload = function() {
+    try {
+      var agents = JSON.parse(xhr.responseText);
+      if (!agents.length) {
+        grid.innerHTML = '<div class="empty">暂无设备</div>';
+        return;
+      }
+      var html = '';
+      var count = 0;
+      agents.forEach(function(agent) {
+        var xhr2 = new XMLHttpRequest();
+        xhr2.open('GET', SERVER + '/api/' + agent.id + '/latest', false);
+        xhr2.send(null);
+        var latest = null;
+        if (xhr2.status === 200) {
+          try { latest = JSON.parse(xhr2.responseText); } catch(e) {}
+        }
+        var isOnline = latest && (Date.now()/1000 - latest.timestamp) < 300;
+        var ago = latest ? timeAgo(latest.timestamp) : '无数据';
+        var status = isOnline ? '<span class="online">● 在线</span>' : '<span class="offline">● 离线</span>';
+        var ping = latest ? fmt(latest.ping_rtt_ms, 1) + ' ms' : '-';
+        var loss = latest ? fmt(latest.ping_loss_pct, 0) + '%' : '-';
+        var dns = latest ? fmt(latest.dns_ms, 1) : '-';
+        var tgt = latest ? (latest.target_name || '-') : '-';
+        var tgtRtt = latest && latest.target_rtt_ms ? fmt(latest.target_rtt_ms, 1) + ' ms' : '-';
+        html += '<div class="card">' +
+          '<div class="card-title">' + agent.name + ' ' + status + '</div>' +
+          '<div class="card-meta">' + (agent.customer_name || '') + ' · ' + ago + '</div>' +
+          '<div class="row"><span class="label">网关延迟</span><span>' + ping + '</span></div>' +
+          '<div class="row"><span class="label">丢包率</span><span>' + loss + '</span></div>' +
+          '<div class="row"><span class="label">DNS延迟</span><span>' + dns + ' ms</span></div>' +
+          '<div class="row"><span class="label">' + tgt + '</span><span>' + tgtRtt + '</span></div>' +
+          '</div>';
+        count++;
+      });
+      grid.innerHTML = html || '<div class="empty">无数据</div>';
+    } catch(e) {
+      grid.innerHTML = '<div class="empty">解析失败: ' + e.message + '</div>';
+    }
+  };
+  xhr.onerror = function() {
+    grid.innerHTML = '<div class="empty">网络请求失败</div>';
+  };
+  xhr.send(null);
+}
+
+load();
+setInterval(load, 30000);
+</script>
+</body>
+</html>

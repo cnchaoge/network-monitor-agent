@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>网络监控</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #f5f5f7;
+  color: #1d1d1f;
+  padding: 16px 12px;
+  min-height: 100vh;
+}
+.header {
+  margin-bottom: 16px;
+}
+.header h1 {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+.header .sub {
+  font-size: 12px;
+  color: #86868b;
+}
+.card {
+  background: #fff;
+  border-radius: 16px;
+  padding: 20px 16px;
+  margin-bottom: 12px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+}
+.status-row {
+  display: flex;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.status-dot {
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  margin-right: 8px;
+  flex-shrink: 0;
+}
+.online { background: #34c759; box-shadow: 0 0 6px rgba(52,199,89,0.5); }
+.offline { background: #ff3b30; }
+.status-text {
+  font-size: 16px;
+  font-weight: 600;
+}
+.status-text.online { color: #34c759; }
+.status-text.offline { color: #ff3b30; }
+.ago {
+  font-size: 11px;
+  color: #86868b;
+  margin-left: auto;
+}
+.divider { height: 1px; background: #f0f0f0; margin: 12px 0; }
+.stat {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 0;
+}
+.stat-label { font-size: 13px; color: #86868b; }
+.stat-value { font-size: 14px; font-weight: 500; }
+.last-update {
+  text-align: center;
+  font-size: 11px;
+  color: #aeaeb2;
+  margin-top: 8px;
+}
+.refresh-btn {
+  display: block;
+  width: 100%;
+  background: #007aff;
+  color: #fff;
+  border: none;
+  border-radius: 12px;
+  padding: 14px;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  margin-top: 8px;
+}
+.refresh-btn:active { background: #0064d0; }
+.error-msg {
+  text-align: center;
+  padding: 32px 16px;
+  color: #86868b;
+  font-size: 14px;
+}
+.loading {
+  text-align: center;
+  padding: 32px;
+  color: #aeaeb2;
+  font-size: 14px;
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1 id="page-title">网络监控</h1>
+  <p class="sub" id="page-sub">加载中...</p>
+</div>
+
+<button class="refresh-btn" onclick="loadData()">刷新状态</button>
+
+<div id="content">
+  <div class="loading">加载中...</div>
+</div>
+
+<div class="last-update" id="last-update"></div>
+
+<script>
+var SERVER = location.origin;
+var AGENT_ID = null;
+
+// 从 URL 参数读取 agent_id，如 ?id=abc123
+var urlParams = new URLSearchParams(location.search);
+AGENT_ID = urlParams.get('id');
+
+// 如果没有 id，显示设备列表让用户选择
+if (!AGENT_ID) {
+  showAgentList();
+} else {
+  loadData();
+  setInterval(loadData, 30000);
+}
+
+function showAgentList() {
+  document.getElementById('page-title').textContent = '选择设备';
+  document.getElementById('page-sub').textContent = '请选择要查看的设备';
+  document.getElementById('content').innerHTML = '<div class="loading">加载设备列表...</div>';
+  var xhr = new XMLHttpRequest();
+  xhr.open('GET', SERVER + '/api/agents', true);
+  xhr.onload = function() {
+    try {
+      var agents = JSON.parse(xhr.responseText);
+      if (!agents.length) {
+        document.getElementById('content').innerHTML = '<div class="error-msg">暂无可用设备</div>';
+        return;
+      }
+      var html = '';
+      agents.forEach(function(a) {
+        var name = a.customer_name || a.name || '未知设备';
+        html += '<div class="card" onclick="location.href=\'?id=' + a.id + '\'">' +
+          '<div class="stat"><span class="stat-label">' + name + '</span><span style="color:#007aff">查看 →</span></div>' +
+          '<div class="stat"><span class="stat-label">Agent ID</span><span class="stat-value" style="font-size:12px;color:#86868b">' + a.id + '</span></div>' +
+          '</div>';
+      });
+      document.getElementById('content').innerHTML = html;
+    } catch(e) {
+      document.getElementById('content').innerHTML = '<div class="error-msg">加载失败</div>';
+    }
+  };
+  xhr.onerror = function() {
+    document.getElementById('content').innerHTML = '<div class="error-msg">网络请求失败</div>';
+  };
+  xhr.send(null);
+}
+
+function loadData() {
+  if (!AGENT_ID) return;
+  var content = document.getElementById('content');
+  if (content.innerHTML.indexOf('loading') === -1) {
+    content.innerHTML = '<div class="loading">加载中...</div>';
+  }
+  var xhr = new XMLHttpRequest();
+  xhr.open('GET', SERVER + '/api/agents/' + AGENT_ID, false);
+  xhr.send(null);
+  var agent = null;
+  if (xhr.status === 200) {
+    try { agent = JSON.parse(xhr.responseText); } catch(e) {}
+  }
+
+  var xhr2 = new XMLHttpRequest();
+  xhr2.open('GET', SERVER + '/api/' + AGENT_ID + '/latest', false);
+  xhr2.send(null);
+  var latest = null;
+  if (xhr2.status === 200) {
+    try { latest = JSON.parse(xhr2.responseText); } catch(e) {}
+  }
+
+  render(agent, latest);
+}
+
+function render(agent, latest) {
+  var name = agent ? (agent.customer_name || agent.name) : '未知设备';
+  document.getElementById('page-title').textContent = name;
+  document.getElementById('page-sub').textContent = '网络监控';
+
+  if (!latest) {
+    document.getElementById('content').innerHTML = '<div class="error-msg">暂无数据</div>';
+    return;
+  }
+
+  var isOnline = (Date.now()/1000 - latest.timestamp) < 300;
+  var statusText = isOnline ? '网络正常' : '网络异常';
+  var ago = timeAgo(latest.timestamp);
+
+  var ping = fmt(latest.ping_rtt_ms, 1);
+  var loss = fmt(latest.ping_loss_pct, 0);
+  var dns = fmt(latest.dns_ms, 1);
+  var tgt = latest.target_name || '-';
+  var tgtRtt = latest.target_rtt_ms ? fmt(latest.target_rtt_ms, 1) : '-';
+  var gateway = latest.gateway_reachable ? '可达' : '不可达';
+  var targetReach = latest.target_reachable ? '可达' : '不可达';
+
+  var html = '<div class="card">' +
+    '<div class="status-row">' +
+      '<div class="status-dot ' + (isOnline ? 'online' : 'offline') + '"></div>' +
+      '<span class="status-text ' + (isOnline ? 'online' : 'offline') + '">' + statusText + '</span>' +
+      '<span class="ago">' + ago + '</span>' +
+    '</div>' +
+    '<div class="divider"></div>' +
+    '<div class="stat"><span class="stat-label">网关延迟</span><span class="stat-value">' + ping + ' ms</span></div>' +
+    '<div class="stat"><span class="stat-label">丢包率</span><span class="stat-value">' + loss + '%</span></div>' +
+    '<div class="stat"><span class="stat-label">DNS延迟</span><span class="stat-value">' + dns + ' ms</span></div>' +
+    '<div class="stat"><span class="stat-label">网关可达</span><span class="stat-value">' + gateway + '</span></div>' +
+    '<div class="divider"></div>' +
+    '<div class="stat"><span class="stat-label">' + tgt + '</span><span class="stat-value">' + (latest.target_reachable ? '✓ 可达 ' + tgtRtt + ' ms' : '✗ 不可达') + '</span></div>' +
+    '</div>';
+
+  document.getElementById('content').innerHTML = html;
+  document.getElementById('last-update').textContent = '最后更新: ' + new Date().toLocaleTimeString('zh-CN', {hour12:false});
+}
+
+function fmt(v, dec) {
+  if (v === null || v === undefined) return '-';
+  return v.toFixed(dec);
+}
+
+function timeAgo(ts) {
+  var s = Math.floor(Date.now()/1000 - ts);
+  if (s < 60) return '刚刚';
+  if (s < 3600) return Math.floor(s/60) + '分钟前';
+  if (s < 86400) return Math.floor(s/3600) + '小时前';
+  return Math.floor(s/86400) + '天前';
+}
+</script>
+</body>
+</html>
