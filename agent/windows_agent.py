@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """
-企业网络监控 - Windows Agent
-最小化到系统托盘，开机自启
-依赖: pip install pystray pillow pyinstaller
+企业网络监控 - Windows Agent (自注册版)
+首次运行弹出设置向导，之后静默运行
 """
 import socket
 import time
@@ -14,20 +13,15 @@ import logging
 import subprocess
 import urllib.request
 import urllib.error
+import threading
 
-# ─── 配置（修改这里） ────────────────────────────────────────────────────────
+# ─── 配置 ─────────────────────────────────────────────────────────────────
 SERVER_URL = "http://82.156.229.67:8000"
-REPORT_INTERVAL = 60  # 上报间隔（秒）
+REPORT_INTERVAL = 60
 LOG_FILE = os.path.expanduser("~/.network_monitor_agent.log")
+CONFIG_FILE = os.path.expanduser("~/.network_monitor_agent.json")
 
-# 探测目标（按需修改）
-TARGETS = [
-    {"name": "网关", "host": "192.168.1.1"},
-    {"name": "DNS", "host": "8.8.8.8"},
-]
-# ───────────────────────────────
-
-# 日志
+# ─── 日志 ─────────────────────────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -38,21 +32,18 @@ logging.basicConfig(
 )
 log = logging.getLogger()
 
-# ─── Agent ID 持久化 ─────────────────────────────────────────────────────────
-ID_FILE = os.path.expanduser("~/.network_monitor_agent_id")
+# ─── 配置文件 ─────────────────────────────────────────────────────────────
+def load_config():
+    if os.path.exists(CONFIG_FILE):
+        with open(CONFIG_FILE) as f:
+            return json.load(f)
+    return None
 
-def get_or_create_id():
-    if os.path.exists(ID_FILE):
-        with open(ID_FILE) as f:
-            return f.read().strip()
-    agent_id = str(uuid.uuid4())[:8]
-    with open(ID_FILE, "w") as f:
-        f.write(agent_id)
-    return agent_id
+def save_config(cfg):
+    with open(CONFIG_FILE, "w") as f:
+        json.dump(cfg, f, ensure_ascii=False, indent=2)
 
-AGENT_ID = get_or_create_id()
-
-# ─── 探测函数 ───────────────────────────────────────────────────────────────
+# ─── 探测函数 ─────────────────────────────────────────────────────────────
 
 def ping_once(host, timeout=3):
     try:
@@ -101,6 +92,11 @@ def get_gateway():
     except Exception:
         return "192.168.1.1"
 
+TARGETS = [
+    {"name": "网关", "host": "192.168.1.1"},
+    {"name": "DNS", "host": "8.8.8.8"},
+]
+
 def probe_target(target):
     rtt = ping_once(target["host"])
     return (rtt is not None, rtt)
@@ -132,32 +128,36 @@ def run_probe():
         "target_rtt_ms": target_rtt,
     }
 
-# ─── 上报 ──────────────────────────────────────────────────────────────────
+# ─── 自注册 ───────────────────────────────────────────────────────────────
 
-def register():
+def register_agent(company_name):
     try:
-        data = json.dumps({"name": socket.gethostname()}).encode()
+        data = json.dumps({
+            "name": socket.gethostname(),
+            "customer_name": company_name,
+            "location": "",
+            "remark": "windows-agent"
+        }).encode()
         req = urllib.request.Request(
-            f"{SERVER_URL}/api/register", data=data,
-            headers={"Content-Type": "application/json"}, method="POST"
+            SERVER_URL + "/api/register",
+            data=data,
+            headers={"Content-Type": "application/json"},
+            method="POST"
         )
         with urllib.request.urlopen(req, timeout=10) as resp:
             result = json.loads(resp.read())
-            new_id = result.get("agent_id")
-            if new_id:
-                with open(ID_FILE, "w") as f:
-                    f.write(new_id)
-                return new_id
+            return result.get("agent_id")
     except Exception as e:
-        log.warning("注册失败: %s", e)
-    return AGENT_ID
+        log.error("注册失败: %s", e)
+        return None
 
-def report(data):
+def report(data, agent_id):
     try:
-        url = f"{SERVER_URL}/api/{AGENT_ID}/report"
         req = urllib.request.Request(
-            url, data=json.dumps(data).encode(),
-            headers={"Content-Type": "application/json"}, method="POST"
+            SERVER_URL + "/api/" + agent_id + "/report",
+            data=json.dumps(data).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST"
         )
         with urllib.request.urlopen(req, timeout=10) as resp:
             return json.loads(resp.read())
@@ -165,68 +165,128 @@ def report(data):
         log.warning("上报失败: %s", e)
         return None
 
-# ─── 托盘图标（pystray） ──────────────────────────────────────────────────
+# ─── 设置向导窗口 ─────────────────────────────────────────────────────────
 
-def build_tray():
+def show_setup_window(agent_id=None, company_name=""):
+    """弹出tkinter设置窗口"""
     try:
-        from pystray import Icon, MenuItem, Menu
-        from PIL import Image, ImageDraw
+        import tkinter as tk
+        from tkinter import messagebox
     except ImportError:
-        log.warning("pystray 未安装，托盘功能不可用")
+        log.error("tkinter 不可用，无法弹出设置窗口")
         return None
 
-    # 生成一个简单的绿色图标
-    img = Image.new("RGB", (64, 64), color=(52, 199, 89))
-    draw = ImageDraw.Draw(img)
-    draw.ellipse([8, 8, 56, 56], fill=(255, 255, 255))
-    draw.ellipse([20, 20, 44, 44], fill=(52, 199, 89))
+    result = {"agent_id": agent_id, "company_name": company_name, "ready": False}
 
-    def on_show(icon=None, item=None):
-        icon.visible = False
-        # 窗口恢复（如果支持）
-        log.info("托盘图标被点击")
+    def on_submit():
+        result["company_name"] = entry.get().strip()
+        if not result["company_name"]:
+            messagebox.showwarning("提示", "请填写企业名称")
+            return
+        result["ready"] = True
+        win.destroy()
 
-    def on_quit(icon=None, item=None):
-        log.info("Agent 退出")
-        if icon:
-            icon.stop()
-        sys.exit(0)
+    win = tk.Tk()
+    win.title("网络监控 - 首次设置")
+    win.geometry("420x240")
+    win.resizable(False, False)
+    win.attributes("-topmost", True)
 
-    menu = Menu(
-        MenuItem("显示", on_show),
-        MenuItem("退出", on_quit),
-    )
+    # 居中
+    win.update_idletasks()
+    x = (win.winfo_screenwidth() - 420) // 2
+    y = (win.winfo_screenheight() - 240) // 2
+    win.geometry(f"420x240+{x}+{y}")
 
-    icon = Icon("网络监控", img, "网络监控 Agent", menu)
-    return icon
+    tk.Label(win, text="企业网络监控", font=("Arial", 16, "bold")).pack(pady=16)
+    tk.Label(win, text="首次使用，请填写以下信息：", font=("Arial", 10)).pack(pady=4)
 
-# ─── 主循环 ─────────────────────────────────────────────────────────────────
+    frame = tk.Frame(win)
+    frame.pack(pady=12, padx=24, fill="x")
+    tk.Label(frame, text="企业名称：", font=("Arial", 11)).grid(row=0, column=0, sticky="w", pady=8)
+    entry = tk.Entry(frame, font=("Arial", 11))
+    entry.grid(row=0, column=1, sticky="ew", pady=8, padx=4)
+    entry.insert(0, company_name)
+    entry.focus()
+    frame.columnconfigure(1, weight=1)
+
+    btn_frame = tk.Frame(win)
+    btn_frame.pack(pady=12)
+    tk.Button(btn_frame, text="确定", font=("Arial", 11), bg="#007aff", fg="white",
+              activebackground="#0064d0", width=12, command=on_submit).pack()
+
+    def on_enter(e):
+        on_submit()
+    entry.bind("<Return>", on_enter)
+
+    win.protocol("WM_DELETE_WINDOW", lambda: None)  # 禁止关闭
+    win.mainloop()
+    return result if result["ready"] else None
+
+def show_message_window(title, msg):
+    """弹出消息窗口（注册成功/失败）"""
+    try:
+        import tkinter as tk
+        from tkinter import messagebox
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        messagebox.showinfo(title, msg)
+        root.destroy()
+    except Exception:
+        log.info("%s: %s", title, msg)
+
+# ─── 主流程 ───────────────────────────────────────────────────────────────
 
 def main():
     log.info("=" * 40)
-    log.info("网络监控 Agent 启动，ID: %s", AGENT_ID)
+    log.info("网络监控 Agent 启动")
     log.info("服务端: %s", SERVER_URL)
-    log.info("探测间隔: %d 秒", REPORT_INTERVAL)
     log.info("=" * 40)
 
-    # 托盘
-    tray = build_tray()
-    tray_enabled = (tray is not None)
+    # Windows 上隐藏控制台窗口
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            ctypes.windll.user32.ShowWindow(ctypes.windll.kernel32.GetConsoleWindow(), 0)
+        except Exception:
+            pass
 
-    if tray_enabled:
-        import threading
-        tray_thread = threading.Thread(target=tray.run, daemon=True)
-        tray_thread.start()
-        log.info("托盘图标已启动")
+    # 读取配置
+    config = load_config()
+
+    if not config or not config.get("agent_id"):
+        # 首次运行，弹出设置向导
+        log.info("首次运行，显示设置向导...")
+        setup_result = show_setup_window(
+            agent_id=config.get("agent_id") if config else None,
+            company_name=config.get("company_name") if config else ""
+        )
+        if not setup_result:
+            log.info("用户取消设置，退出")
+            return
+
+        company_name = setup_result["company_name"]
+        log.info("正在注册企业: %s", company_name)
+
+        # 注册
+        agent_id = register_agent(company_name)
+        if not agent_id:
+            show_message_window("注册失败", "无法连接到服务器，请检查网络后重新运行。")
+            log.error("注册失败，退出")
+            return
+
+        log.info("注册成功，Agent ID: %s", agent_id)
+        show_message_window("注册成功",
+            f"企业：{company_name}\n设备ID：{agent_id}\n\n安装完成，Agent已开始运行。")
+
+        # 保存配置
+        config = {"agent_id": agent_id, "company_name": company_name}
+        save_config(config)
+        log.info("配置已保存")
     else:
-        log.info("无托盘模式，运行于前台")
-
-    # 注册
-    if not os.path.exists(ID_FILE):
-        new_id = register()
-        if new_id != AGENT_ID:
-            AGENT_ID = new_id
-            log.info("注册成功，ID: %s", AGENT_ID)
+        agent_id = config["agent_id"]
+        log.info("已配置 Agent ID: %s", agent_id)
 
     log.info("开始探测...")
     consecutive_errors = 0
@@ -234,7 +294,7 @@ def main():
     while True:
         try:
             data = run_probe()
-            result = report(data)
+            result = report(data, agent_id)
             consecutive_errors = 0 if result else consecutive_errors + 1
 
             if result and result.get("ok"):
@@ -260,8 +320,4 @@ def main():
     log.info("Agent 已停止")
 
 if __name__ == "__main__":
-    # Windows 上隐藏控制台窗口
-    if sys.platform == "win32":
-        import ctypes
-        ctypes.windll.user32.ShowWindow(ctypes.windll.kernel32.GetConsoleWindow(), 0)
     main()

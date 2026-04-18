@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>网络监控 - 下载安装</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #f5f5f7;
+  color: #1d1d1f;
+  padding: 20px 16px;
+  min-height: 100vh;
+  max-width: 480px;
+  margin: 0 auto;
+}
+.header { text-align: center; padding: 32px 0 24px; }
+.header h1 { font-size: 24px; font-weight: 700; margin-bottom: 8px; }
+.header p { font-size: 14px; color: #86868b; line-height: 1.6; }
+.card {
+  background: #fff;
+  border-radius: 16px;
+  padding: 24px 20px;
+  margin-bottom: 16px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+}
+.card-title { font-size: 16px; font-weight: 600; margin-bottom: 14px; }
+.step {
+  display: flex;
+  align-items: flex-start;
+  margin-bottom: 16px;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.step-num {
+  width: 24px; height: 24px;
+  background: #007aff;
+  color: #fff;
+  border-radius: 50%;
+  text-align: center;
+  line-height: 24px;
+  font-size: 12px;
+  font-weight: 600;
+  flex-shrink: 0;
+  margin-right: 12px;
+}
+.step-text { color: #1d1d1f; }
+.download-btn {
+  display: block;
+  background: #34c759;
+  color: #fff;
+  text-decoration: none;
+  border-radius: 12px;
+  padding: 16px;
+  font-size: 17px;
+  font-weight: 600;
+  text-align: center;
+  margin-top: 8px;
+}
+.download-btn:active { background: #2db84d; }
+.note {
+  background: #fffbe6;
+  border: 1px solid #ffe58f;
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-size: 13px;
+  color: #7a6400;
+  line-height: 1.7;
+  margin-top: 12px;
+}
+.note strong { color: #d48800; }
+.footer {
+  text-align: center;
+  font-size: 12px;
+  color: #aeaeb2;
+  margin-top: 24px;
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>🌐 企业网络监控</h1>
+  <p>安装后网络状态尽在掌握<br>故障自动推送微信通知</p>
+</div>
+
+<div class="card">
+  <div class="card-title">安装步骤</div>
+
+  <div class="step">
+    <span class="step-num">1</span>
+    <span class="step-text">点击下方按钮下载安装包</span>
+  </div>
+  <div class="step">
+    <span class="step-num">2</span>
+    <span class="step-text">双击运行安装程序，首次会弹出设置窗口</span>
+  </div>
+  <div class="step">
+    <span class="step-num">3</span>
+    <span class="step-text">填写企业名称，点击确定，完成！</span>
+  </div>
+
+  <a class="download-btn" href="https://github.com/cnchaoge/network-monitor-agent/releases/latest">
+    📥 下载安装包（Windows）
+  </a>
+
+  <div class="note">
+    <strong>⚠️ 安装前请确保：</strong><br>
+    · Windows 电脑已安装 Python 3.8+（去 <strong>python.org</strong> 下载安装）<br>
+    · 安装时勾选「Add Python to PATH」<br>
+    · 运行过程请保持网络连接
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">📱 安装完成后</div>
+  <p style="font-size:14px;color:#86868b;line-height:1.7;">
+    用手机访问以下地址，随时查看网络状态：
+  </p>
+  <p style="font-size:13px;margin-top:8px;word-break:break-all;color:#007aff;" id="mobile-hint">
+    安装完成后此处会显示您的专属链接
+  </p>
+</div>
+
+<div class="footer">
+  网络监控平台 v0.1 · 技术支持
+</div>
+
+<script>
+var SERVER = "http://82.156.229.67:8000";
+var CONFIG_FILE = "/tmp/nm_agent_config.json";
+
+// 尝试从 localStorage 获取 agent_id（exe 安装后会写入）
+var savedId = localStorage.getItem("nm_agent_id");
+if (savedId) {
+  document.getElementById("mobile-hint").textContent = SERVER + "/mobile?id=" + savedId;
+  document.getElementById("mobile-hint").style.wordBreak = "break-all";
+}
+</script>
+</body>
+</html>
