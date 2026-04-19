@@ -228,8 +228,8 @@ function load() {
         var qrUrl = SERVER + '/api/qr?text=' + encodeURIComponent(mobileUrl);
 
         html += '<div class="card">' +
-          '<div class="card-title">' + agent.name + ' ' + status + '</div>' +
-          '<div class="card-meta">' + (agent.customer_name || '') + ' · ' + ago + '</div>' +
+          '<div class="card-title">' + (agent.customer_name || agent.name) + ' ' + status + '</div>' +
+          '<div class="card-meta">' + agent.name + ' · ' + ago + '</div>' +
           '<div class="metrics-grid">' +
             metricItem(pRtt, 80, 150, '网关延迟', 'ms') +
             metricItem(pLoss, 5, 20, '丢包率', '%') +
@@ -260,18 +260,35 @@ function load() {
   xhr.send(null);
 }
 
-// SSE 实时推送
+// SSE 实时推送 + 兜底轮询
 load();
-var es = new EventSource(SERVER + '/api/events');
-es.onmessage = function(e) {
-  try {
-    var data = JSON.parse(e.data);
-    if (data.type === 'refresh') {
-      load(); // 有设备上报新数据，立即刷新
+var es = null;
+var esClosed = false;
+
+function connectSSE() {
+  if (esClosed) return;
+  es = new EventSource(SERVER + '/api/events');
+  es.onmessage = function(e) {
+    try {
+      var data = JSON.parse(e.data);
+      if (data.type === 'refresh') {
+        load();
+      }
+    } catch(err) {}
+  };
+  es.onerror = function() {
+    es.close();
+    es = null;
+    // 3秒后重连
+    if (!esClosed) {
+      setTimeout(connectSSE, 3000);
     }
-  } catch(err) {}
-};
-es.onerror = function() {};
+  };
+}
+connectSSE();
+
+// 兜底：每30秒轮询一次（防止SSE断开期间漏掉更新）
+setInterval(load, 30000);
 </script>
 </body>
 </html>

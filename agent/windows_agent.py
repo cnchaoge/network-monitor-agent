@@ -133,7 +133,7 @@ def run_probe():
 def register_agent(company_name):
     try:
         data = json.dumps({
-            "name": socket.gethostname(),
+            "name": company_name,
             "customer_name": company_name,
             "location": "",
             "remark": "windows-agent"
