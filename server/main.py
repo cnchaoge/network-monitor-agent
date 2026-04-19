@@ -27,6 +27,9 @@ DB_PATH = Path(__file__).parent / "monitor.db"
 SCKEY = "SCT339677TkI9RsTLtYUzaqgsUNBTH8XcN"
 ALERT_THRESHOLD_SEC = 180
 
+# ─── 管理员配置 ────────────────────────────────────────────────────────────
+ADMIN_PASSWORD = "lanwatch2026"
+
 # ─── SSE 实时推送 ──────────────────────────────────────────────────────────
 import asyncio
 import json
@@ -343,6 +346,146 @@ def bind_agent(agent_id: str, user_id: str = ""):
     finally:
         close_db(conn)
 
+# ─── 管理员接口 ────────────────────────────────────────────────────────────
+
+class LoginRequest(BaseModel):
+    password: str
+
+class UserUpdate(BaseModel):
+    name: Optional[str] = None
+    phone: Optional[str] = None
+
+class UserCreate(BaseModel):
+    name: str
+    phone: Optional[str] = ""
+
+class AgentUpdate(BaseModel):
+    name: Optional[str] = None
+    customer_name: Optional[str] = None
+    location: Optional[str] = None
+    remark: Optional[str] = None
+
+@app.post("/api/admin/login")
+def admin_login(data: LoginRequest):
+    if data.password != ADMIN_PASSWORD:
+        raise HTTPException(status_code=401, detail="密码错误")
+    return {"ok": True, "token": "admin-session"}
+
+@app.get("/api/admin/users")
+def list_all_users():
+    conn = get_db()
+    try:
+        c = conn.execute("SELECT * FROM users ORDER BY created_at DESC")
+        rows = c.fetchall()
+        result = []
+        for u in rows:
+            udict = dict(u)
+            agents = [dict(r) for r in conn.execute(
+                "SELECT * FROM agents WHERE user_id=? ORDER BY created_at", (udict["id"],)).fetchall()]
+            udict["agents"] = agents
+            result.append(udict)
+        return result
+    finally:
+        close_db(conn)
+
+@app.post("/api/admin/users")
+def create_user(data: UserCreate):
+    conn = get_db()
+    try:
+        user_id = str(uuid.uuid4())[:8]
+        token = secrets.token_hex(16)
+        now = time.time()
+        conn.execute(
+            "INSERT INTO users (id, token, name, phone, created_at) VALUES (?,?,?,?,?)",
+            (user_id, token, data.name, data.phone or "", now)
+        )
+        agent_id = str(uuid.uuid4())[:8]
+        conn.execute(
+            "INSERT INTO agents (id, user_id, name, created_at, customer_name) VALUES (?,?,?,?,?)",
+            (agent_id, user_id, data.name + '-监控', now, data.name)
+        )
+        conn.commit()
+        return {"user_id": user_id, "token": token, "agent_id": agent_id}
+    finally:
+        close_db(conn)
+
+@app.patch("/api/admin/users/{user_id}")
+def update_user(user_id: str, data: UserUpdate):
+    conn = get_db()
+    try:
+        c = conn.execute("SELECT id FROM users WHERE id=?", (user_id,))
+        if not c.fetchone():
+            raise HTTPException(status_code=404, detail="用户不存在")
+        fields, values = [], []
+        if data.name is not None:
+            fields.append("name=?"); values.append(data.name)
+        if data.phone is not None:
+            fields.append("phone=?"); values.append(data.phone)
+        if not fields:
+            return {"ok": True}
+        values.append(user_id)
+        conn.execute("UPDATE users SET " + ",".join(fields) + " WHERE id=?", values)
+        conn.commit()
+        return {"ok": True}
+    finally:
+        close_db(conn)
+
+@app.delete("/api/admin/users/{user_id}")
+def delete_user(user_id: str):
+    conn = get_db()
+    try:
+        conn.execute("DELETE FROM agents WHERE user_id=?", (user_id,))
+        conn.execute("DELETE FROM users WHERE id=?", (user_id,))
+        conn.commit()
+        return {"ok": True}
+    finally:
+        close_db(conn)
+
+@app.post("/api/admin/users/{user_id}/reset-token")
+def reset_user_token(user_id: str):
+    conn = get_db()
+    try:
+        c = conn.execute("SELECT id FROM users WHERE id=?", (user_id,))
+        if not c.fetchone():
+            raise HTTPException(status_code=404, detail="用户不存在")
+        new_token = secrets.token_hex(16)
+        conn.execute("UPDATE users SET token=? WHERE id=?", (new_token, user_id))
+        conn.commit()
+        return {"ok": True, "token": new_token}
+    finally:
+        close_db(conn)
+
+@app.patch("/api/admin/agents/{agent_id}")
+def update_agent_admin(agent_id: str, data: AgentUpdate):
+    conn = get_db()
+    try:
+        c = conn.execute("SELECT id FROM agents WHERE id=?", (agent_id,))
+        if not c.fetchone():
+            raise HTTPException(status_code=404, detail="设备不存在")
+        fields, values = [], []
+        for key in ["name", "customer_name", "location", "remark"]:
+            val = getattr(data, key, None)
+            if val is not None:
+                fields.append(f"{key}=?"); values.append(val)
+        if not fields:
+            return {"ok": True}
+        values.append(agent_id)
+        conn.execute("UPDATE agents SET " + ",".join(fields) + " WHERE id=?", values)
+        conn.commit()
+        return {"ok": True}
+    finally:
+        close_db(conn)
+
+@app.delete("/api/admin/agents/{agent_id}")
+def delete_agent_admin(agent_id: str):
+    conn = get_db()
+    try:
+        conn.execute("DELETE FROM agents WHERE id=?", (agent_id,))
+        conn.commit()
+        return {"ok": True}
+    finally:
+        close_db(conn)
+
 # ─── 数据上报（Agent 用，无认证） ───────────────────────────────────────────
 
 @app.post("/api/{agent_id}/report")
@@ -496,6 +639,14 @@ def agent_detail(agent_id: str):
     detail_path = Path(__file__).parent / "static" / "agent_detail.html"
     if detail_path.exists():
         return FileResponse(str(detail_path))
+    return {"message": "Not found"}
+
+@app.get("/admin")
+def admin_page():
+    """管理员后台"""
+    admin_path = Path(__file__).parent / "static" / "admin.html"
+    if admin_path.exists():
+        return FileResponse(str(admin_path))
     return {"message": "Not found"}
 
 @app.get("/api/qr")

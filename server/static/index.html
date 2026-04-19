@@ -4,7 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>网络监控平台</title>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f5f5f7; color: #1d1d1f; padding: 32px; }
@@ -15,19 +14,15 @@ h1 { font-size: 22px; font-weight: 600; margin-bottom: 4px; }
 .card-meta { font-size: 11px; color: #86868b; margin-bottom: 4px; }
 .online { color: #34c759; } .offline { color: #ff3b30; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
-.row { display: flex; justify-content: space-between; padding: 5px 0; font-size: 13px; border-bottom: 1px solid #f0f0f0; }
-.row:last-child { border-bottom: none; }
-.label { color: #86868b; }
 .refresh-btn { background: #007aff; color: #fff; border: none; border-radius: 8px; padding: 8px 16px; font-size: 13px; cursor: pointer; }
 .refresh-btn:hover { opacity: 0.8; }
-.btn { background: none; border: 1px solid #d2d2d7; border-radius: 8px; padding: 6px 14px; font-size: 13px; cursor: pointer; }
 .empty { text-align: center; padding: 48px; color: #86868b; }
-.qr-section { margin-top: 12px; padding-top: 12px; border-top: 1px solid #f0f0f0; display: flex; align-items: center; gap: 10px; }
-.qr-label { font-size: 11px; color: #86868b; white-space: nowrap; }
-.qr-img { width: 64px; height: 64px; border: 1px solid #f0f0f0; border-radius: 6px; }
-.qr-link { font-size: 11px; color: #007aff; word-break: break-all; cursor: pointer; }
-.chart-wrap { margin-top: 12px; }
-.chart-wrap canvas { max-height: 140px; }
+.card-footer { display: flex; align-items: center; gap: 10px; margin-top: 10px; padding-top: 10px; border-top: 1px solid #f0f0f0; }
+.qr-img { width: 56px; height: 56px; border: 1px solid #f0f0f0; border-radius: 6px; flex-shrink: 0; }
+.qr-text { display: flex; flex-direction: column; gap: 2px; }
+.qr-label { font-size: 11px; color: #86868b; }
+.qr-btn { font-size: 11px; color: #007aff; cursor: pointer; }
+.qr-btn:hover { text-decoration: underline; }
 .metrics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; margin: 10px 0; }
 .metric-item { display: flex; align-items: center; gap: 6px; font-size: 12px; }
 .metric-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
@@ -36,11 +31,13 @@ h1 { font-size: 22px; font-weight: 600; margin-bottom: 4px; }
 .dot-red { background: #ff3b30; box-shadow: 0 0 5px rgba(255,59,48,0.5); }
 .dot-grey { background: #d2d2d7; }
 .metric-label { color: #86868b; min-width: 50px; }
-.metric-value { font-weight: 600; font-size: 12px; }
+.metric-value { font-weight: 600; font-size: 12px; margin-left: auto; }
 .val-green { color: #34c759; }
 .val-orange { color: #ff9500; }
 .val-red { color: #ff3b30; }
 .val-grey { color: #aeaeb2; }
+.footer { text-align: center; font-size: 11px; color: #aeaeb2; margin-top: 32px; padding-top: 16px; border-top: 1px solid #e5e5ea; }
+.footer a { color: #aeaeb2; text-decoration: none; }
 </style>
 </head>
 <body>
@@ -49,136 +46,20 @@ h1 { font-size: 22px; font-weight: 600; margin-bottom: 4px; }
 <button class="refresh-btn" onclick="load()">刷新</button>
 <hr style="margin:16px 0;border:none;border-top:1px solid #e5e5ea;">
 <div id="grid" class="grid"></div>
+<div class="footer">
+  <a href="http://www.lanwatch.net">www.lanwatch.net</a> · 企业网络值守服务<br>
+  © 2026 · 所有权利保留
+</div>
 <script>
 var SERVER = location.origin;
 document.getElementById('server-url').textContent = SERVER;
 
-// 阈值配置
-var THRESHOLDS = {
-  ping_rtt_ms:   { warn: 80,  crit: 150,  unit: 'ms',  label: '网关延迟' },
-  ping_loss_pct: { warn: 5,   crit: 20,   unit: '%',   label: '丢包率' },
-  dns_ms:        { warn: 100, crit: 300,  unit: 'ms',  label: 'DNS延迟' },
-  target_rtt_ms: { warn: 100, crit: 300,  unit: 'ms',  label: '目标延迟' },
-};
-
-function barColor(v, warn, crit) {
-  if (v === null || v === undefined || isNaN(v)) return '#d2d2d7'; // 灰色-无数据
-  if (v >= crit) return '#ff3b30';   // 红色-严重
-  if (v >= warn) return '#ff9500';   // 橙色-警告
-  return '#34c759';                  // 绿色-正常
-}
-
-function bgColor(v, warn, crit) {
-  if (v === null || v === undefined || isNaN(v)) return '#f0f0f0';
-  if (v >= crit) return 'rgba(255,59,48,0.15)';
-  if (v >= warn) return 'rgba(255,149,0,0.15)';
-  return 'rgba(52,199,89,0.1)';
-}
-
-// 存储 chart 实例，reload 时销毁
-var chartInstances = {};
-
-function destroyCharts() {
-  Object.values(chartInstances).forEach(function(c) { c.destroy(); });
-  chartInstances = {};
-}
-
-function timeAgo(ts) {
-  var s = Math.floor(Date.now()/1000 - ts);
-  if (s < 60) return s + '秒前';
-  if (s < 3600) return Math.floor(s/60) + '分钟前';
-  return Math.floor(s/3600) + '小时前';
-}
-
-function fmt(v, dec) {
-  if (v === null || v === undefined || isNaN(v)) return '-';
-  return v.toFixed(dec);
-}
-
-function copyText(text) {
-  if (navigator.clipboard) {
-    navigator.clipboard.writeText(text).then(function() { alert('链接已复制'); });
-  } else {
-    prompt('复制链接:', text);
-  }
-}
-
-function drawChart(canvasId, latest) {
-  var ctx = document.getElementById(canvasId);
-  if (!ctx) return;
-
-  var metrics = [
-    { key: 'ping_rtt_ms',    label: '网关延迟' },
-    { key: 'ping_loss_pct', label: '丢包率' },
-    { key: 'dns_ms',         label: 'DNS延迟' },
-    { key: 'target_rtt_ms', label: '目标延迟' },
-  ];
-
-  var labels = [];
-  var values = [];
-  var colors = [];
-  var bgColors = [];
-
-  metrics.forEach(function(m) {
-    var v = latest ? latest[m.key] : null;
-    var t = THRESHOLDS[m.key];
-    labels.push(t.label);
-    values.push(v !== null && v !== undefined ? parseFloat(v.toFixed(1)) : 0);
-    colors.push(barColor(v, t.warn, t.crit));
-    bgColors.push(bgColor(v, t.warn, t.crit));
-  });
-
-  if (chartInstances[canvasId]) {
-    chartInstances[canvasId].destroy();
-  }
-
-  chartInstances[canvasId] = new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels: labels,
-      datasets: [{
-        data: values,
-        backgroundColor: bgColors,
-        borderColor: colors,
-        borderWidth: 1.5,
-        borderRadius: 4,
-      }]
-    },
-    options: {
-      indexAxis: 'y',
-      responsive: true,
-      maintainAspectRatio: true,
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          callbacks: {
-            label: function(ctx) {
-              var v = ctx.raw;
-              var t = metrics[ctx.dataIndex];
-              return v > 0 ? t.label + ': ' + v + (t.unit || '') : t.label + ': 无数据';
-            }
-          }
-        }
-      },
-      scales: {
-        x: {
-          grid: { color: '#f0f0f0' },
-          ticks: { font: { size: 10 }, color: '#86868b' }
-        },
-        y: {
-          grid: { display: false },
-          ticks: { font: { size: 11 }, color: '#1d1d1f' }
-        }
-      }
-    }
-  });
-}
-
 function metricDot(v, warn, crit) {
   if (v === null || v === undefined || isNaN(v)) return { dot: 'dot-grey', val: 'val-grey', text: '-' };
-  if (v >= crit) return { dot: 'dot-red', val: 'val-red', text: v };
-  if (v >= warn) return { dot: 'dot-orange', val: 'val-orange', text: v };
-  return { dot: 'dot-green', val: 'val-green', text: v };
+  var rounded = Math.round(v * 10) / 10;
+  if (v >= crit) return { dot: 'dot-red', val: 'val-red', text: rounded };
+  if (v >= warn) return { dot: 'dot-orange', val: 'val-orange', text: rounded };
+  return { dot: 'dot-green', val: 'val-green', text: rounded };
 }
 
 function metricItem(v, warn, crit, label, unit) {
@@ -191,10 +72,24 @@ function metricItem(v, warn, crit, label, unit) {
     '</div>';
 }
 
+function timeAgo(ts) {
+  var s = Math.floor(Date.now()/1000 - ts);
+  if (s < 60) return s + '秒前';
+  if (s < 3600) return Math.floor(s/60) + '分钟前';
+  return Math.floor(s/3600) + '小时前';
+}
+
+function copyText(text) {
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(text).then(function() { alert('链接已复制'); });
+  } else {
+    prompt('复制链接:', text);
+  }
+}
+
 function load() {
   var grid = document.getElementById('grid');
   grid.innerHTML = '<div class="empty">加载中...</div>';
-  destroyCharts();
 
   var xhr = new XMLHttpRequest();
   xhr.open('GET', SERVER + '/api/agents', true);
@@ -217,7 +112,6 @@ function load() {
         var isOnline = latest && (Date.now()/1000 - latest.timestamp) < 300;
         var ago = latest ? timeAgo(latest.timestamp) : '无数据';
         var status = isOnline ? '<span class="online">● 在线</span>' : '<span class="offline">● 离线</span>';
-        // 四个指标
         var pRtt = latest ? latest.ping_rtt_ms : null;
         var pLoss = latest ? latest.ping_loss_pct : null;
         var dns = latest ? latest.dns_ms : null;
@@ -249,7 +143,6 @@ function load() {
           '</div>';
       });
       grid.innerHTML = html || '<div class="empty">无数据</div>';
-
     } catch(e) {
       grid.innerHTML = '<div class="empty">解析失败: ' + e.message + '</div>';
     }
@@ -271,23 +164,15 @@ function connectSSE() {
   es.onmessage = function(e) {
     try {
       var data = JSON.parse(e.data);
-      if (data.type === 'refresh') {
-        load();
-      }
+      if (data.type === 'refresh') { load(); }
     } catch(err) {}
   };
   es.onerror = function() {
-    es.close();
-    es = null;
-    // 3秒后重连
-    if (!esClosed) {
-      setTimeout(connectSSE, 3000);
-    }
+    es.close(); es = null;
+    if (!esClosed) { setTimeout(connectSSE, 3000); }
   };
 }
 connectSSE();
-
-// 兜底：每30秒轮询一次（防止SSE断开期间漏掉更新）
 setInterval(load, 30000);
 </script>
 </body>

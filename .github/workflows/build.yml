@@ -35,7 +35,7 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: agent/dist/NetworkMonitorAgent.exe
-          tag_name: v0.2
-          name: "NetworkMonitorAgent v0.2"
-          body: "企业网络监控 Windows 安装包 v0.2\n\n更新：用户认证 + 实时推送 + 状态指示灯 + 微信报警\n\n直接下载 NetworkMonitorAgent.exe，双击运行即可。\n首次运行会弹出设置向导，填写企业名称后自动完成注册。"
+          tag_name: v0.3
+          name: "NetworkMonitorAgent v0.3"
+          body: "企业网络监控 Windows 安装包 v0.3\n\n更新：局域网拓扑扫描 + 设备详情页 + 管理后台 + 微信报警\n\n直接下载 NetworkMonitorAgent.exe，双击运行即可。\n首次运行会弹出设置向导，填写企业名称后自动完成注册。"
           allow_same_tag: true

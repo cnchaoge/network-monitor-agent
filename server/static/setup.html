@@ -192,12 +192,16 @@ async function doRegister() {
 function copyToken() {
   var token = document.getElementById('show-token').textContent;
   navigator.clipboard.writeText(token).then(function() {
-    window.location.href = 'https://github.com/cnchaoge/network-monitor-agent/releases/download/v0.1/NetworkMonitorAgent.exe';
+    window.location.href = 'https://github.com/cnchaoge/network-monitor-agent/releases/download/v0.3/NetworkMonitorAgent.exe';
   }).catch(function() {
     prompt('复制以下凭证后，将跳转到下载页面：', token);
-    window.location.href = 'https://github.com/cnchaoge/network-monitor-agent/releases/download/v0.1/NetworkMonitorAgent.exe';
+    window.location.href = 'https://github.com/cnchaoge/network-monitor-agent/releases/download/v0.3/NetworkMonitorAgent.exe';
   });
 }
 </script>
+<div style="text-align:center;font-size:11px;color:#aeaeb2;padding:16px 0;border-top:1px solid #e5e5ea;margin-top:24px;">
+  <a href="http://www.lanwatch.net" style="color:#aeaeb2;text-decoration:none;">www.lanwatch.net</a> · 企业网络值守服务<br>
+  © 2026 · 所有权利保留
+</div>
 </body>
 </html>
