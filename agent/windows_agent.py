@@ -384,42 +384,42 @@ def report_topology(devices, agent_id):
 
 # ─── 设置向导窗口 ─────────────────────────────────────────────────────────
 
-def show_setup_window(agent_id=None, company_name=""):
-    """弹出tkinter设置窗口"""
-    try:
-        import tkinter as tk
-        from tkinter import messagebox
-    except ImportError:
-        log.error("tkinter 不可用，无法弹出设置窗口")
-        return None
+def show_setup_window(company_name=""):
+    """弹出tkinter设置窗口，返回输入的企业名称或None"""
+    import tkinter as tk
+    from tkinter import messagebox
 
-    result = {"agent_id": agent_id, "company_name": company_name, "ready": False}
+    result = {"company_name": "", "ready": False}
 
     def on_submit():
-        result["company_name"] = entry.get().strip()
-        if not result["company_name"]:
+        name = entry.get().strip()
+        if not name:
             messagebox.showwarning("提示", "请填写企业名称")
             return
+        result["company_name"] = name
         result["ready"] = True
+        win.destroy()
+
+    def on_ok():
         win.destroy()
 
     win = tk.Tk()
     win.title("网络监控 - 首次设置")
-    win.geometry("420x240")
+    win.geometry("420x220")
     win.resizable(False, False)
     win.attributes("-topmost", True)
-
-    # 居中
     win.update_idletasks()
-    x = (win.winfo_screenwidth() - 420) // 2
-    y = (win.winfo_screenheight() - 240) // 2
-    win.geometry(f"420x240+{x}+{y}")
+    cx = (win.winfo_screenwidth() - 420) // 2
+    cy = (win.winfo_screenheight() - 220) // 2
+    win.geometry(f"420x220+{cx}+{cy}")
 
-    tk.Label(win, text="企业网络监控", font=("Arial", 16, "bold")).pack(pady=16)
-    tk.Label(win, text="首次使用，请填写以下信息：", font=("Arial", 10)).pack(pady=4)
+    title_label = tk.Label(win, text="企业网络监控", font=("Arial", 16, "bold"))
+    title_label.pack(pady=12)
+    sub_label = tk.Label(win, text="首次使用，请填写以下信息：", font=("Arial", 10), fg="#666")
+    sub_label.pack(pady=2)
 
     frame = tk.Frame(win)
-    frame.pack(pady=12, padx=24, fill="x")
+    frame.pack(pady=10, padx=24, fill="x")
     tk.Label(frame, text="企业名称：", font=("Arial", 11)).grid(row=0, column=0, sticky="w", pady=8)
     entry = tk.Entry(frame, font=("Arial", 11))
     entry.grid(row=0, column=1, sticky="ew", pady=8, padx=4)
@@ -428,30 +428,43 @@ def show_setup_window(agent_id=None, company_name=""):
     frame.columnconfigure(1, weight=1)
 
     btn_frame = tk.Frame(win)
-    btn_frame.pack(pady=12)
+    btn_frame.pack(pady=10)
     tk.Button(btn_frame, text="确定", font=("Arial", 11), bg="#007aff", fg="white",
               activebackground="#0064d0", width=12, command=on_submit).pack()
-
-    def on_enter(e):
-        on_submit()
-    entry.bind("<Return>", on_enter)
-
-    win.protocol("WM_DELETE_WINDOW", lambda: None)  # 禁止关闭
+    entry.bind("<Return>", lambda e: on_submit())
+    win.protocol("WM_DELETE_WINDOW", lambda: None)
     win.mainloop()
-    return result if result["ready"] else None
 
-def show_message_window(title, msg):
-    """弹出消息窗口（注册成功/失败）"""
-    try:
-        import tkinter as tk
-        from tkinter import messagebox
-        root = tk.Tk()
-        root.withdraw()
-        root.attributes("-topmost", True)
-        messagebox.showinfo(title, msg)
-        root.destroy()
-    except Exception:
-        log.info("%s: %s", title, msg)
+    if not result["ready"]:
+        return None
+    return result["company_name"]
+
+def show_success_window(company_name, agent_id):
+    """显示注册成功信息（复用同一 Tk 实例，避免多窗口冲突）"""
+    import tkinter as tk
+
+    win = tk.Tk()
+    win.title("网络监控 - 注册成功")
+    win.geometry("440x200")
+    win.resizable(False, False)
+    win.attributes("-topmost", True)
+    win.update_idletasks()
+    cx = (win.winfo_screenwidth() - 440) // 2
+    cy = (win.winfo_screenheight() - 200) // 2
+    win.geometry(f"440x200+{cx}+{cy}")
+
+    tk.Label(win, text="✓ 注册成功", font=("Arial", 16, "bold"), fg="#34c759").pack(pady=12)
+    tk.Label(win, text=f"企业：{company_name}", font=("Arial", 11)).pack(pady=2)
+    tk.Label(win, text=f"设备ID：{agent_id}", font=("Arial", 11, "italic"), fg="#555").pack(pady=2)
+    tk.Label(win, text="Agent已开始运行，数据将自动上报。", font=("Arial", 10), fg="#888").pack(pady=8)
+    tk.Label(win, text="本窗口关闭后Agent将在后台继续运行", font=("Arial", 9), fg="#aaa").pack()
+
+    def on_close():
+        win.destroy()
+    tk.Button(win, text="确定", font=("Arial", 11), bg="#007aff", fg="white",
+             width=12, command=on_close).pack(pady=14)
+    win.protocol("WM_DELETE_WINDOW", on_close)
+    win.mainloop()
 
 # ─── 主流程 ───────────────────────────────────────────────────────────────
 
@@ -475,27 +488,23 @@ def main():
     if not config or not config.get("agent_id"):
         # 首次运行，弹出设置向导
         log.info("首次运行，显示设置向导...")
-        setup_result = show_setup_window(
-            agent_id=config.get("agent_id") if config else None,
+        company_name = show_setup_window(
             company_name=config.get("company_name") if config else ""
         )
-        if not setup_result:
+        if not company_name:
             log.info("用户取消设置，退出")
             return
 
-        company_name = setup_result["company_name"]
         log.info("正在注册企业: %s", company_name)
 
         # 注册
         agent_id = register_agent(company_name)
         if not agent_id:
-            show_message_window("注册失败", "无法连接到服务器，请检查网络后重新运行。")
             log.error("注册失败，退出")
             return
 
         log.info("注册成功，Agent ID: %s", agent_id)
-        show_message_window("注册成功",
-            f"企业：{company_name}\n设备ID：{agent_id}\n\n安装完成，Agent已开始运行。")
+        show_success_window(company_name, agent_id)
 
         # 保存配置
         config = {"agent_id": agent_id, "company_name": company_name}
