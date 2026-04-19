@@ -243,8 +243,14 @@ def get_local_ip_and_mac():
     mac_addr = ""
     ip_addr = ""
     try:
+        # Windows 上隐藏子进程窗口
+        startupinfo = None
+        if sys.platform == "win32":
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            startupinfo.wShowWindow = subprocess.SW_HIDE
         # Windows: getmac 或 arp -a
-        result = subprocess.run("getmac /v /fo csv", capture_output=True, text=True, timeout=5)
+        result = subprocess.run("getmac /v /fo csv", capture_output=True, text=True, timeout=5, startupinfo=startupinfo)
         for line in result.stdout.splitlines():
             if "正在启用" in line or "Online" in line:
                 parts = line.split(",")
@@ -293,6 +299,12 @@ def ping_scan(subnet_prefix, timeout=0.5):
 def arp_lookup(ip):
     """查询单个 IP 的 MAC 地址（从 ARP 缓存）"""
     try:
+        # Windows 上隐藏子进程窗口
+        startupinfo = None
+        if sys.platform == "win32":
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            startupinfo.wShowWindow = subprocess.SW_HIDE
         # 先强制发一个 ARP 请求
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.settimeout(0.3)
@@ -302,10 +314,9 @@ def arp_lookup(ip):
             pass
         sock.close()
         # 读取 ARP 表
-        result = subprocess.run("arp -a", capture_output=True, text=True, timeout=5)
+        result = subprocess.run("arp -a", capture_output=True, text=True, timeout=5, startupinfo=startupinfo)
         for line in result.stdout.splitlines():
             if ip in line:
-                # 格式: 192.168.1.1    00:11:22:33:44:55     动态
                 parts = line.split()
                 for p in parts:
                     if ":" in p and p.count(":") == 5:
