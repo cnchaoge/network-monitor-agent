@@ -2,8 +2,15 @@ name: Build Windows .exe
 
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号（如 v0.4.0）'
+        required: false
+        default: ''
   push:
     branches: [main]
+    paths:
+      - 'agent/windows_agent.py'
 
 permissions:
   contents: write
@@ -26,16 +33,55 @@ jobs:
           python -m pip install --upgrade pip
           pip install pystray pillow pyinstaller
 
+      - name: Read version from source
+        id: version
+        run: |
+          $version = "0.4.0"
+          if ("${{ github.event.inputs.version }}" -ne "") {
+            $version = "${{ github.event.inputs.version }}"
+          } else {
+            # 从 windows_agent.py 提取 __version__
+            $content = Get-Content agent/windows_agent.py -Raw
+            if ($content -match '(__version__|version__)\s*=\s*["\"]([^"\"]+)["\"]') {
+              $version = $matches[2]
+            }
+          }
+          $version = $version -replace '^v', ''
+          echo "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8
+          echo "VERSION_STR=v$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          echo "Exe file will be built as: NetworkMonitorAgent_v$($version.Replace('.','')).exe"
+          Write-Host "::set-output name=VERSION::$version"
+        shell: pwsh
+
       - name: Build .exe
         run: |
           cd agent
-          pyinstaller --onefile --name NetworkMonitorAgent --noconsole windows_agent.py
+          $exeName = "NetworkMonitorAgent_v${{ env.VERSION.replace('.','') }}"
+          python -m pyinstaller --onefile --noconsole --name "$exeName" windows_agent.py
+          ls dist/
 
-      - name: Upload .exe to release
-        uses: softprops/action-gh-release@v1
+      - name: Create or update GitHub Release
+        env:
+          VERSION: ${{ env.VERSION_STR }}
+        run: |
+          $exeName = "NetworkMonitorAgent_v${{ env.VERSION.replace('.','') }}"
+          $exePath = "agent/dist/$exeName.exe"
+          echo "Will upload: $exePath"
+
+          # Create or update tag
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git tag -f ${{ env.VERSION }} HEAD 2>/dev/null || true
+          git push origin ${{ env.VERSION }} --force 2>/dev/null || true
+
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v2
         with:
-          files: agent/dist/NetworkMonitorAgent.exe
-          tag_name: v0.3
-          name: "NetworkMonitorAgent v0.3"
-          body: "企业网络监控 Windows 安装包 v0.3\n\n更新：局域网拓扑扫描 + 设备详情页 + 管理后台 + 微信报警\n\n直接下载 NetworkMonitorAgent.exe，双击运行即可。\n首次运行会弹出设置向导，填写企业名称后自动完成注册。"
-          allow_same_tag: true
+          tag_name: ${{ env.VERSION_STR }}
+          name: LanWatch Agent ${{ env.VERSION_STR }}
+          files: |
+            agent/dist/NetworkMonitorAgent_v*.exe
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
