@@ -755,9 +755,12 @@ def open_log_file():
         pass
 
 def stop_agent(tray_icon):
-    tray_icon.stop()
-    log.info("[托盘] 用户请求退出")
-    sys.exit(0)
+    try:
+        tray_icon.stop()
+    except Exception:
+        pass
+    log.info("[托盘] 用户请求退出，正在关闭...")
+    os._exit(0)
 
 def setup_tray(agent_id, company_name):
     """创建并启动系统托盘图标"""
