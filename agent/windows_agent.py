@@ -165,6 +165,223 @@ def report(data, agent_id):
         log.warning("上报失败: %s", e)
         return None
 
+# ─── 局域网拓扑扫描 ────────────────────────────────────────────────────────
+
+# MAC 厂商 OUI 前缀库（常见品牌，缩小版）
+OUI_VENDOR = {
+    "00:50:56": "VMware",     "00:0C:29": "VMware",     "00:1C:14": "VMware",
+    "00:05:69": "VMware",
+    "00:50:BA": "NetGear",   "00:14:6C": "NetGear",
+    "00:1B:2B": "HP",        "00:1F:29": "HP",         "00:21:5A": "HP",
+    "00:22:64": "Dell",      "00:06:5B": "Dell",
+    "00:1C:B3": "Apple",     "00:1D:4F": "Apple",      "00:1E:C9": "Apple",
+    "00:1E:52": "Cisco",     "00:1A:2B": "Cisco",      "00:25:84": "Cisco",
+    "00:1E:BE": "Cisco",
+    "00:04:4B": "Nvidia",
+    "00:1A:11": "Google",
+    "00:50:F2": "Microsoft", "00:0D:3A": "Microsoft",  "00:12:5A": "Microsoft",
+    "00:15:5D": "Microsoft", "00:17:FA": "Microsoft",
+    "00:1A:6B": "TP-Link",   "00:27:19": "TP-Link",    "14:CC:20": "TP-Link",
+    "30:B5:C2": "TP-Link",
+    "00:25:9E": "Cisco-Linksys", "00:1A:70": "Cisco-Linksys",
+    "00:1E:58": "D-Link",     "00:22:B0": "D-Link",     "00:26:5A": "D-Link",
+    "1C:AF:F7": "D-Link",
+    "00:1F:33": "Netgear",
+    "00:24:B2": "ZTE",       "00:1B:3C": "ZTE",        "44:2A:60": "ZTE",
+    "00:25:68": "Huawei",   "00:18:82": "Huawei",     "00:1E:10": "Huawei",
+    "34:29:12": "Huawei",
+    "00:09:5B": "NetGear",
+    "20:CF:30": "Xiaomi",    "34:80:B3": "Xiaomi",     "F8:A4:5F": "Xiaomi",
+    "C8:D7:B0": "Xiaomi",
+    "18:31:BF": "Huawei",    "88:53:95": "Huawei",
+    "00:17:88": "Philips",   "00:18:FE": "Philips",
+    "00:16:3E": "Xensource",
+    "00:1C:42": "Parallels",
+    "08:00:27": "VirtualBox",
+}
+
+def get_vendor(mac):
+    """根据 MAC 地址查询厂商"""
+    if not mac:
+        return ""
+    prefix = mac.upper().replace("-", ":")[:8]
+    return OUI_VENDOR.get(prefix, "")
+
+def guess_device_type(ip, hostname, vendor, mac):
+    """根据信息推测设备类型"""
+    h = (hostname or "").lower()
+    v = (vendor or "").lower()
+    # 根据主机名判断
+    if any(k in h for k in ["router", "gateway", "tplink", "netgear", "tendawifi", "mercury", "192.168"]):
+        return "router"
+    if any(k in h for k in ["printer", "print", "hp", "canon", "brother", "epson", "xerox"]):
+        return "printer"
+    if any(k in h for k in ["server", "nas", "synology", "qnap", "群晖", "威联通"]):
+        return "server"
+    if any(k in h for k in ["switch", "sw", "s2950", "s5050"]):
+        return "switch"
+    # 根据厂商判断
+    if "cisco" in v and "router" in h:
+        return "router"
+    if "hp" in v:
+        return "switch"
+    if "dell" in v:
+        return "server"
+    if "vmware" in v or "virtualbox" in v or "xensource" in v or "parallels" in v:
+        return "vm"
+    if "apple" in v:
+        return "phone"
+    if "xiaomi" in v or "huawei" in v or "zte" in v:
+        return "router"
+    if "microsoft" in v and "xbox" in h:
+        return "game"
+    # 默认
+    return "unknown"
+
+def get_local_ip_and_mac():
+    """获取本机 IP 和 MAC 地址"""
+    mac_addr = ""
+    ip_addr = ""
+    try:
+        # Windows: getmac 或 arp -a
+        result = subprocess.run("getmac /v /fo csv", capture_output=True, text=True, timeout=5)
+        for line in result.stdout.splitlines():
+            if "正在启用" in line or "Online" in line:
+                parts = line.split(",")
+                for p in parts:
+                    if ":" in p and len(p.replace('"','').replace('-',':').strip()) == 17:
+                        mac_addr = p.replace('"', '').strip().upper()
+                        break
+        # 获取 IP
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(("8.8.8.8", 80))
+            ip_addr = s.getsockname()[0]
+        finally:
+            s.close()
+    except Exception as e:
+        log.warning("获取本机MAC失败: %s", e)
+    return ip_addr, mac_addr
+
+def get_gateway_ip():
+    """获取网关 IP"""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        local_ip = s.getsockname()[0]
+        s.close()
+        parts = local_ip.rsplit(".", 1)
+        return parts[0] + ".1"
+    except Exception:
+        return "192.168.1.1"
+
+def ping_scan(subnet_prefix, timeout=0.5):
+    """快速 ping 扫描同 subnet 存活主机，返回 IP 列表"""
+    alive = []
+    for i in range(1, 255):
+        ip = f"{subnet_prefix}.{i}"
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock.settimeout(timeout)
+            sock.connect((ip, 80))
+            sock.close()
+            alive.append(ip)
+        except Exception:
+            pass
+    return alive
+
+def arp_lookup(ip):
+    """查询单个 IP 的 MAC 地址（从 ARP 缓存）"""
+    try:
+        # 先强制发一个 ARP 请求
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.settimeout(0.3)
+        try:
+            sock.sendto(b"", (ip, 80))
+        except Exception:
+            pass
+        sock.close()
+        # 读取 ARP 表
+        result = subprocess.run("arp -a", capture_output=True, text=True, timeout=5)
+        for line in result.stdout.splitlines():
+            if ip in line:
+                # 格式: 192.168.1.1    00:11:22:33:44:55     动态
+                parts = line.split()
+                for p in parts:
+                    if ":" in p and p.count(":") == 5:
+                        return p.upper()
+    except Exception:
+        pass
+    return ""
+
+def get_hostname(ip):
+    """反解主机名"""
+    try:
+        name, _, _ = socket.gethostbyaddr(ip)
+        return name
+    except Exception:
+        return ""
+
+def scan_topology():
+    """完整拓扑扫描"""
+    log.info("[拓扑] 开始扫描局域网...")
+    gateway = get_gateway_ip()
+    local_ip, local_mac = get_local_ip_and_mac()
+    subnet_prefix = local_ip.rsplit(".", 1)[0] if local_ip else "192.168.1"
+
+    # ping 扫描
+    alive_ips = ping_scan(subnet_prefix, timeout=0.5)
+    log.info("[拓扑] 发现 %d 台存活主机", len(alive_ips))
+
+    devices = []
+    seen = set()
+
+    for ip in alive_ips:
+        mac = arp_lookup(ip)
+        hostname = get_hostname(ip)
+        vendor = get_vendor(mac)
+        dtype = guess_device_type(ip, hostname, vendor, mac)
+
+        key = mac or ip
+        if key in seen:
+            continue
+        seen.add(key)
+
+        # 跳过本机和网关重复
+        if mac == local_mac and ip != local_ip:
+            continue
+
+        devices.append({
+            "ip": ip,
+            "mac": mac,
+            "hostname": hostname,
+            "vendor": vendor,
+            "device_type": dtype,
+        })
+        log.info("[拓扑]  %s  %s  %s  %s", ip, mac or "- ", vendor or "-", dtype)
+
+    log.info("[拓扑] 扫描完成，共 %d 台设备", len(devices))
+    return devices
+
+TOPOLOGY_INTERVAL = 300  # 5 分钟扫描一次拓扑
+
+def report_topology(devices, agent_id):
+    """上报拓扑数据到服务端"""
+    try:
+        req = urllib.request.Request(
+            SERVER_URL + "/api/" + agent_id + "/topology",
+            data=json.dumps({"devices": devices}).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            result = json.loads(resp.read())
+            log.info("[拓扑] 上报成功，已录入 %s 台设备", result.get("count", len(devices)))
+            return result
+    except Exception as e:
+        log.warning("[拓扑] 上报失败: %s", e)
+        return None
+
 # ─── 设置向导窗口 ─────────────────────────────────────────────────────────
 
 def show_setup_window(agent_id=None, company_name=""):
@@ -290,6 +507,8 @@ def main():
 
     log.info("开始探测...")
     consecutive_errors = 0
+    topo_counter = 0  # 每 topo_interval 次循环做一次拓扑扫描
+    TOPO_EVERY_N = max(1, TOPOLOGY_INTERVAL // REPORT_INTERVAL)  # 多少轮做一次拓扑
 
     while True:
         try:
@@ -307,6 +526,14 @@ def main():
                     data['target_reachable'])
             else:
                 log.warning("上报失败 (连续失败 %d 次)", consecutive_errors)
+
+            # 拓扑扫描（每 TOPOLOGY_INTERVAL 秒一次）
+            topo_counter += 1
+            if topo_counter >= TOPO_EVERY_N:
+                topo_counter = 0
+                devices = scan_topology()
+                if devices:
+                    report_topology(devices, agent_id)
 
         except KeyboardInterrupt:
             log.info("收到停止信号")

@@ -122,6 +122,23 @@ def init_db():
             c.execute("CREATE INDEX IF NOT EXISTS idx_agents_user ON agents(user_id)")
         except Exception:
             pass
+
+        # 拓扑数据表
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS topology (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                agent_id TEXT NOT NULL,
+                ip TEXT NOT NULL,
+                mac TEXT NOT NULL,
+                hostname TEXT DEFAULT '',
+                vendor TEXT DEFAULT '',
+                device_type TEXT DEFAULT 'unknown',
+                last_seen REAL DEFAULT 0,
+                discovered_at REAL DEFAULT 0,
+                UNIQUE(agent_id, ip)
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_topology_agent ON topology(agent_id)")
         conn.commit()
         print("[DB] initialized at", DB_PATH)
     finally:
@@ -145,6 +162,16 @@ class ProbeReport(BaseModel):
     target_reachable: bool = True
     target_name: Optional[str] = ""
     target_rtt_ms: Optional[float] = None
+
+class TopologyDevice(BaseModel):
+    ip: str
+    mac: str
+    hostname: Optional[str] = ""
+    vendor: Optional[str] = ""
+    device_type: Optional[str] = "unknown"  # router / switch / server / printer / pc / unknown
+
+class TopologyReport(BaseModel):
+    devices: list[TopologyDevice]
 
 # ─── 认证 ───────────────────────────────────────────────────────────────────
 
@@ -389,6 +416,41 @@ def history(agent_id: str, limit: int = 60):
     finally:
         close_db(conn)
 
+@app.post("/api/{agent_id}/topology")
+def report_topology(agent_id: str, data: TopologyReport):
+    """接收 Agent 上报的局域网拓扑数据"""
+    conn = get_db()
+    try:
+        c = conn.execute("SELECT id FROM agents WHERE id=?", (agent_id,))
+        if not c.fetchone():
+            raise HTTPException(status_code=404, detail="Agent not found")
+        now = time.time()
+        for dev in data.devices:
+            conn.execute("""
+                INSERT OR REPLACE INTO topology
+                (agent_id, ip, mac, hostname, vendor, device_type, last_seen, discovered_at)
+                VALUES (?,?,?,?,?,?,?,?)
+            """, (agent_id, dev.ip, dev.mac.upper(), dev.hostname or '',
+                  dev.vendor or '', dev.device_type or 'unknown', now, now))
+        conn.commit()
+        return {"ok": True, "count": len(data.devices)}
+    finally:
+        close_db(conn)
+
+@app.get("/api/{agent_id}/topology")
+def get_topology(agent_id: str):
+    """获取设备的局域网拓扑信息"""
+    conn = get_db()
+    try:
+        c = conn.execute(
+            "SELECT * FROM topology WHERE agent_id=? ORDER BY last_seen DESC",
+            (agent_id,)
+        )
+        rows = c.fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        close_db(conn)
+
 # ─── 报警测试 ─────────────────────────────────────────────────────────────
 
 @app.get("/api/alert/test")
@@ -426,6 +488,14 @@ def setup():
     setup_path = Path(__file__).parent / "static" / "setup.html"
     if setup_path.exists():
         return FileResponse(str(setup_path))
+    return {"message": "Not found"}
+
+@app.get("/agent/{agent_id}")
+def agent_detail(agent_id: str):
+    """企业设备详情页（包含拓扑图）"""
+    detail_path = Path(__file__).parent / "static" / "agent_detail.html"
+    if detail_path.exists():
+        return FileResponse(str(detail_path))
     return {"message": "Not found"}
 
 @app.get("/api/qr")

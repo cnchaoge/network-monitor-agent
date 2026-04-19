@@ -224,6 +224,8 @@ function load() {
         var tgtRtt = latest ? latest.target_rtt_ms : null;
         var tgtOk = latest ? latest.target_reachable : null;
         var tgtName = latest ? (latest.target_name || '目标') : '目标';
+        var mobileUrl = SERVER + '/mobile?id=' + agent.id;
+        var qrUrl = SERVER + '/api/qr?text=' + encodeURIComponent(mobileUrl);
 
         html += '<div class="card">' +
           '<div class="card-title">' + agent.name + ' ' + status + '</div>' +
@@ -235,6 +237,14 @@ function load() {
             (tgtOk === false
               ? '<div class="metric-item"><span class="metric-dot dot-red"></span><span class="metric-label">' + tgtName + '</span><span class="metric-value val-red">不可达</span></div>'
               : metricItem(tgtRtt, 100, 300, tgtName, 'ms')) +
+          '</div>' +
+          '<div class="card-footer">' +
+            '<img class="qr-img" src="' + qrUrl + '" alt="二维码">' +
+            '<div class="qr-text">' +
+              '<span class="qr-label">手机查看专属</span>' +
+              '<span class="qr-btn" onclick="copyText(\'' + mobileUrl + '\')">复制链接</span>' +
+            '</div>' +
+            '<a class="qr-btn" href="/agent/' + agent.id + '" style="margin-left:auto;color:#007aff;font-size:12px;">详细信息 →</a>' +
           '</div>' +
           '</div>';
       });
