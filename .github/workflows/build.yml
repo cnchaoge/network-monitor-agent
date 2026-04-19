@@ -37,7 +37,7 @@ jobs:
 
       - name: Create Release
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: ncipollo/release-action@v4
+        uses: ncipollo/release-action@v1
         with:
           artifacts: agent/dist/*.exe
           token: ${{ secrets.GITHUB_TOKEN }}
