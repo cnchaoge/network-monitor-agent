@@ -665,6 +665,30 @@ def show_setup_window(company_name=""):
     location = ", ".join(result["subnets"])
     return result["company_name"], result["autostart"], location, result["subnets"], result["targets"]
 
+def show_about_window():
+    import tkinter as tk
+    import webbrowser
+
+    win = tk.Tk()
+    win.title("关于")
+    win.geometry("360x200")
+    win.resizable(False, False)
+    win.attributes("-topmost", True)
+    win.update_idletasks()
+    cx = (win.winfo_screenwidth() - 360) // 2
+    cy = (win.winfo_screenheight() - 200) // 2
+    win.geometry(f"360x200+{cx}+{cy}")
+
+    tk.Label(win, text="企业网络监控", font=("Arial", 16, "bold")).pack(pady=16)
+    tk.Label(win, text=f"版本：v{__version__}", font=("Arial", 11)).pack(pady=4)
+    tk.Label(win, text="下载地址：", font=("Arial", 10), fg="#666").pack(pady=(12, 2))
+    link = tk.Label(win, text="http://www.lanwatch.net/download", font=("Arial", 10), fg="#1a73e8", cursor="hand2")
+    link.pack()
+    link.bind("<Button-1>", lambda _: webbrowser.open("http://www.lanwatch.net/download"))
+    tk.Button(win, text="确定", command=win.destroy, font=("Arial", 10), width=10).pack(pady=12)
+    win.mainloop()
+
+
 def show_success_window(company_name, agent_id, location=""):
     import tkinter as tk
 
@@ -758,6 +782,7 @@ def setup_tray(agent_id, company_name):
         MenuItem(f"企业：{company_name}", lambda _: None, enabled=False),
         MenuItem(f"ID：{agent_id[:8]}...", lambda _: None, enabled=False),
         MenuItem("───", lambda _: None, enabled=False),
+        MenuItem("关于", lambda icon, _: show_about_window()),
         MenuItem("查看日志", lambda icon, _: open_log_file()),
         MenuItem("退出网络守护", lambda icon, _: stop_agent(icon)),
     )
