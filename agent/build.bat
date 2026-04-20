@@ -1,45 +1,43 @@
 @echo off
-chcp 65001 >nul
 echo ====================================
-echo  网络监控 Agent Windows 打包工具
-echo  版本: v0.4.0
+echo  Network Monitor Agent - Build Tool
 echo ====================================
 echo.
 
-REM 安装依赖
-echo [1/3] 检查依赖...
+REM Install dependencies
+echo [1/3] Installing dependencies...
 pip install pystray pillow pyinstaller -q
 if errorlevel 1 (
-    echo 依赖安装失败，请以管理员身份运行
+    echo [ERROR] Failed to install dependencies. Try running as Administrator.
     pause
     exit /b 1
 )
 
-REM 清理旧文件
+REM Clean old build
 echo.
-echo [2/3] 清理旧构建...
+echo [2/3] Cleaning old build files...
 if exist build rmdir /s /q build
 if exist dist rmdir /s /q dist
 
-REM 打包
+REM Build
 echo.
-echo [3/3] 打包中（首次较慢，约1-2分钟）...
-python -m pyinstaller --onefile --noconsole --name "NetworkMonitorAgent_v0400" --distpath . windows_agent.py
+echo [3/3] Building exe (first run may take 1-2 minutes)...
+python -m pyinstaller --onefile --noconsole --name "NetworkMonitorAgent" --distpath . windows_agent.py
 
 if errorlevel 1 (
     echo.
-    echo 打包失败！
+    echo [ERROR] Build failed!
     pause
     exit /b 1
 )
 
 echo.
 echo ====================================
-echo  打包完成！
-echo  exe 文件: NetworkMonitorAgent_v0400.exe
+echo  Build complete!
+echo  Output: dist\NetworkMonitorAgent.exe
 echo ====================================
 echo.
-echo 运行方法：双击 NetworkMonitorAgent_v0400.exe
-echo 开机自启：首次运行后勾选「开机自动启动」
+echo Run: double-click NetworkMonitorAgent.exe
+echo Auto-start: enable via Settings in system tray
 echo.
 pause
