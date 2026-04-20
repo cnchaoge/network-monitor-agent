@@ -43,11 +43,14 @@ h1 { font-size: 22px; font-weight: 600; margin-bottom: 4px; }
 <body>
 <h1>网络监控平台</h1>
 <p class="subtitle">托管服务 · <span id="server-url"></span></p>
-<button class="refresh-btn" onclick="load()">刷新</button>
+<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">
+  <button class="refresh-btn" onclick="load()">刷新</button>
+  <a href="/download" style="background:#34c759;color:#fff;border:none;border-radius:8px;padding:8px 16px;font-size:13px;text-decoration:none;">📥 下载安装包</a>
+</div>
 <hr style="margin:16px 0;border:none;border-top:1px solid #e5e5ea;">
 <div id="grid" class="grid"></div>
 <div class="footer">
-  <a href="http://www.lanwatch.net">www.lanwatch.net</a> · 企业网络值守服务<br>
+  <a href="/download">📥 下载安装包</a> · <a href="http://www.lanwatch.net">www.lanwatch.net</a> · 企业网络值守服务<br>
   © 2026 · 所有权利保留
 </div>
 <script>

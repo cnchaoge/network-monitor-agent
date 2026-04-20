@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>下载中心 - 企业网络监控</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f5f5f7; color: #1d1d1f; min-height: 100vh; }
+.header { background: #fff; border-bottom: 1px solid #e5e5ea; padding: 20px 32px; display: flex; align-items: center; gap: 16px; }
+.header h1 { font-size: 20px; font-weight: 600; }
+.content { max-width: 800px; margin: 40px auto; padding: 0 24px; }
+.content h2 { font-size: 16px; color: #86868b; font-weight: 400; margin-bottom: 24px; text-align: center; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; }
+.card { background: #fff; border: 1px solid #e5e5ea; border-radius: 16px; padding: 24px; display: flex; flex-direction: column; gap: 8px; }
+.card-icon { font-size: 36px; margin-bottom: 4px; }
+.card-title { font-size: 16px; font-weight: 600; }
+.card-desc { font-size: 12px; color: #86868b; flex: 1; }
+.card-version { font-size: 11px; color: #aeaeb2; }
+.card-status { font-size: 11px; padding: 2px 8px; border-radius: 10px; display: inline-block; margin-top: 4px; }
+.status-ok { background: rgba(52,199,89,0.12); color: #34c759; }
+.status-soon { background: rgba(255,149,0,0.12); color: #ff9500; }
+.download-btn { display: block; background: #007aff; color: #fff; text-align: center; padding: 9px; border-radius: 8px; font-size: 13px; text-decoration: none; margin-top: 10px; }
+.download-btn:hover { opacity: 0.85; }
+.download-btn.disabled { background: #d2d2d7; pointer-events: none; }
+.coming-soon { display: block; background: #f0f0f0; color: #86868b; text-align: center; padding: 9px; border-radius: 8px; font-size: 13px; margin-top: 10px; }
+.footer { text-align: center; font-size: 11px; color: #aeaeb2; padding: 24px 0; border-top: 1px solid #e5e5ea; margin-top: 40px; }
+.note { background: #fffbec; border: 1px solid #ffe58a; border-radius: 10px; padding: 14px 16px; font-size: 12px; color: #7a6200; margin-bottom: 24px; line-height: 1.6; }
+.snmp-section { margin-top: 32px; }
+.snmp-section h3 { font-size: 15px; font-weight: 600; margin-bottom: 12px; color: #1d1d1f; }
+.snmp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 16px; }
+.snmp-card { background: #fff; border: 1px solid #e5e5ea; border-radius: 16px; padding: 20px 22px; }
+.snmp-card h4 { font-size: 13px; font-weight: 600; margin-bottom: 10px; color: #1d1d1f; }
+.snmp-card p { font-size: 12px; color: #515154; line-height: 1.7; margin-bottom: 8px; }
+.snmp-card .param { display: flex; gap: 8px; font-size: 12px; line-height: 1.8; }
+.snmp-card .param-name { color: #515154; min-width: 80px; }
+.snmp-card .param-val { color: #1d1d1f; font-family: monospace; background: #f5f5f7; padding: 0 6px; border-radius: 4px; }
+.snmp-note { background: #f0f0f5; border-radius: 10px; padding: 12px 14px; font-size: 11px; color: #636366; margin-top: 12px; line-height: 1.7; }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>📡 企业网络监控平台</h1>
+</div>
+<div class="content">
+  <h2>选择对应平台安装包，下载后双击运行即可</h2>
+
+  <div class="note">
+    💡 <strong>首次安装</strong>：下载对应平台的安装包，双击运行，填写企业名称完成注册。<br>
+    数据将自动上报至服务器，随时可通过管理后台查看网络状态。
+  </div>
+
+  <div class="grid" style="margin-top:32px;">
+
+    <div class="card">
+      <div class="card-icon">🪟</div>
+      <div class="card-title">Windows</div>
+      <div class="card-desc">适用于 Windows 10/11 系统，桌面后台运行</div>
+      <div class="card-version">当前版本：v0.4.2 · 2026-04-20</div>
+      <span class="card-status status-ok">✓ 可用</span>
+      <a class="download-btn" href="https://github.com/cnchaoge/network-monitor-agent/releases/download/v0.4.2/NetworkMonitorAgent.exe">立即下载 (.exe)</a>
+    </div>
+
+    <div class="card">
+      <div class="card-icon">🍎</div>
+      <div class="card-title">macOS</div>
+      <div class="card-desc">适用于 macOS 10.15+ 系统</div>
+      <div class="card-version">版本：v0.4.2 · 即将支持</div>
+      <span class="card-status status-soon">🚧 开发中</span>
+      <div class="coming-soon">即将推出</div>
+    </div>
+
+    <div class="card">
+      <div class="card-icon">🐧</div>
+      <div class="card-title">Linux</div>
+      <div class="card-desc">适用于 Debian/Ubuntu/CentOS 系统</div>
+      <div class="card-version">版本：v0.4.2 · 即将支持</div>
+      <span class="card-status status-soon">🚧 开发中</span>
+      <div class="coming-soon">即将推出</div>
+    </div>
+
+    <div class="card">
+      <div class="card-icon">📶</div>
+      <div class="card-title">OpenWRT 固件</div>
+      <div class="card-desc">适用于 OpenWRT 系统的路由器插件</div>
+      <div class="card-version">版本：v0.4.2 · 即将支持</div>
+      <span class="card-status status-soon">🚧 开发中</span>
+      <div class="coming-soon">即将推出</div>
+    </div>
+
+    <div class="card">
+      <div class="card-icon">🌏</div>
+      <div class="card-title">常用路由器固件</div>
+      <div class="card-desc">支持 TP-Link / 小米 / 华硕 / 华为 等主流路由器</div>
+      <div class="card-version">版本：v0.4.2 · 即将支持</div>
+      <span class="card-status status-soon">🚧 开发中</span>
+      <div class="coming-soon">即将推出</div>
+    </div>
+
+    <div class="card">
+      <div class="card-icon">📱</div>
+      <div class="card-title">手机端</div>
+      <div class="card-desc">微信内直接访问，无需安装 App</div>
+      <div class="card-version">访问地址</div>
+      <span class="card-status status-ok">✓ 可用</span>
+      <a class="download-btn" href="http://www.lanwatch.net/mobile">手机查看</a>
+    </div>
+
+  </div>
+
+  <div class="snmp-section" style="margin-top:32px;">
+    <h3>🌐 企业路由器 / 交换机 — SNMP 监控配置</h3>
+    <p style="font-size:12px;color:#636366;margin-bottom:16px;">如果您的设备无法安装 Agent 客户端（如企业级路由器、硬件防火墙、核心交换机），可通过 SNMP 协议接入平台监控。</p>
+
+    <div class="snmp-grid">
+      <div class="snmp-card">
+        <h4>📋 SNMP V2c 配置参数</h4>
+        <div class="param"><span class="param-name">SNMP 版本</span><span class="param-val">V2c</span></div>
+        <div class="param"><span class="param-name">设备标识</span><span class="param-val">public</span></div>
+        <div class="param"><span class="param-name">SNMP 口令</span><span class="param-val">public</span></div>
+        <div class="param"><span class="param-name">Trap 口令</span><span class="param-val">public</span></div>
+        <div class="param"><span class="param-name">SNMP 目的主机</span><span class="param-val">82.156.229.67</span></div>
+        <div class="param"><span class="param-name">Trap 接收主机</span><span class="param-val">82.156.229.67</span></div>
+        <div class="snmp-note">⚠️ 注意：任子行等部分设备仅支持 V2 版本，请选择 V2c 并确保 Community 为 <code>public</code></div>
+      </div>
+
+      <div class="snmp-card">
+        <h4>📖 配置步骤（通用）</h4>
+        <p>1. 登录路由器管理后台（通常为 192.168.1.1 或 192.168.0.1）</p>
+        <p>2. 找到「SNMP」或「网络管理」配置项</p>
+        <p>3. 启用 SNMP V2c，Community 填写 <code>public</code></p>
+        <p>4. 配置 Trap/目的主机为 <code>82.156.229.67</code></p>
+        <p>5. 保存设置，重启 SNMP 服务</p>
+        <p style="margin-top:8px;">📌 配置完成后，在管理后台添加该设备即可开始监控。</p>
+      </div>
+    </div>
+  </div>
+
+</div>
+</div>
+<div class="footer">
+  <a href="http://www.lanwatch.net" style="color:#aeaeb2;text-decoration:none;">www.lanwatch.net</a> · 企业网络值守服务 · © 2026
+</div>
+</body>
+</html>

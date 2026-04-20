@@ -1,11 +1,13 @@
 """
-企业网络监控平台 - FastAPI 服务端 v0.1
+企业网络监控平台 - FastAPI 服务端 v0.4 SNMP 支持
 """
 import sqlite3
 import uuid
 import time
 import io
 import secrets
+import threading
+import asyncio
 from pathlib import Path
 from typing import Optional
 
@@ -18,6 +20,15 @@ import uvicorn
 import urllib.request
 import urllib.parse
 import qrcode
+import socket
+
+# SNMP 支持
+try:
+    from pysnmp.hlapi import getCmd, SnmpEngine, CommunityData, UdpTransportTarget, ContextData, ObjectIdentity
+    SNMP_AVAILABLE = True
+except ImportError:
+    SNMP_AVAILABLE = False
+    print("[SNMP] pysnmp not installed, SNMP polling disabled")
 
 # ─── 数据库 ─────────────────────────────────────────────────────────────────
 
@@ -31,9 +42,6 @@ ALERT_THRESHOLD_SEC = 180
 ADMIN_PASSWORD = "lanwatch2026"
 
 # ─── SSE 实时推送 ──────────────────────────────────────────────────────────
-import asyncio
-import json
-import threading
 
 clients = set()  # 活跃的 SSE 连接
 _clients_lock = threading.Lock()
@@ -103,6 +111,8 @@ def init_db():
         cols = [row[1] for row in c.fetchall()]
         if "user_id" not in cols:
             c.execute("ALTER TABLE agents ADD COLUMN user_id TEXT NOT NULL DEFAULT 'default'")
+        if "subnets" not in cols:
+            c.execute("ALTER TABLE agents ADD COLUMN subnets TEXT DEFAULT ''")
 
         c.execute("""
             CREATE TABLE IF NOT EXISTS probes (
@@ -142,10 +152,214 @@ def init_db():
             )
         """)
         c.execute("CREATE INDEX IF NOT EXISTS idx_topology_agent ON topology(agent_id)")
+
+        # SNMP 设备表
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS snmp_devices (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ip TEXT UNIQUE NOT NULL,
+                community TEXT NOT NULL DEFAULT 'public',
+                device_name TEXT NOT NULL DEFAULT '',
+                device_type TEXT DEFAULT 'router',
+                status TEXT DEFAULT 'unknown',
+                last_poll REAL DEFAULT 0,
+                created_at REAL NOT NULL
+            )
+        """)
+        # SNMP 指标数据表
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS snmp_metrics (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                device_id INTEGER NOT NULL,
+                oid TEXT NOT NULL,
+                value REAL NOT NULL,
+                timestamp REAL NOT NULL,
+                FOREIGN KEY (device_id) REFERENCES snmp_devices(id)
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_snmp_metrics_device ON snmp_metrics(device_id, timestamp DESC)")
         conn.commit()
         print("[DB] initialized at", DB_PATH)
     finally:
         close_db(conn)
+
+# ─── SNMP 轮询引擎 ──────────────────────────────────────────────────────────
+
+# 常用 OID 定义
+SNMP_OIDS = {
+    "ifInOctets":   ObjectIdentity('1.3.6.1.2.1.2.2.1.10'),   # 接口入流量
+    "ifOutOctets":  ObjectIdentity('1.3.6.1.2.1.2.2.1.16'),  # 接口出流量
+    "ifInUcastPkts":ObjectIdentity('1.3.6.1.2.1.2.2.1.11'),  # 接口入单播包
+    "ifOutUcastPkts":ObjectIdentity('1.3.6.1.2.1.2.2.1.17'), # 接口出单播包
+    "ifOperStatus": ObjectIdentity('1.3.6.1.2.1.2.2.1.8'),   # 接口状态
+    "sysUpTime":    ObjectIdentity('1.3.6.1.2.1.1.3.0'),     # 运行时长
+    "hrProcessorLoad": ObjectIdentity('1.3.6.1.2.1.25.3.3.1.2'), # CPU负载
+    "hrStorageUsed": ObjectIdentity('1.3.6.1.2.1.25.2.3.1.6'), # 存储使用
+    "hrStorageSize": ObjectIdentity('1.3.6.1.2.1.25.2.3.1.5'), # 存储总量
+}
+
+SNMP_INTERVAL = 300  # 5分钟轮询一次
+
+def snmp_get(ips, community, oids):
+    """同步 SNMP GET，支持多个 OID"""
+    results = {}
+    for oid_name, oid_obj in oids.items():
+        snmpEngine = SnmpEngine()
+        try:
+            g = getCmd(
+                snmpEngine,
+                CommunityData(community, mpModel=1),
+                UdpTransportTarget((ips, 161), timeout=3, retries=0),
+                ContextData(),
+                oid_obj
+            )
+            error_indication, error_status, error_index, var_binds = next(g)
+            snmpEngine.transportDispatcher.closeDispatcher()
+            if error_indication:
+                results[oid_name] = None
+            else:
+                for var_bind in var_binds:
+                    val = var_bind[1]
+                    try:
+                        results[oid_name] = int(val)
+                    except Exception:
+                        try:
+                            results[oid_name] = float(val)
+                        except Exception:
+                            results[oid_name] = str(val)
+        except StopIteration:
+            results[oid_name] = None
+        except Exception as e:
+            results[oid_name] = None
+        finally:
+            try:
+                snmpEngine.transportDispatcher.closeDispatcher()
+            except Exception:
+                pass
+    return results
+
+def poll_snmp_devices():
+    """轮询所有 SNMP 设备并写入指标"""
+    if not SNMP_AVAILABLE:
+        return
+    conn = get_db()
+    try:
+        devices = conn.execute("SELECT * FROM snmp_devices").fetchall()
+        now = time.time()
+        for dev in devices:
+            metrics = snmp_get(dev['ip'], dev['community'], SNMP_OIDS)
+            status = "online" if any(v is not None for v in metrics.values()) else "offline"
+            conn.execute(
+                "UPDATE snmp_devices SET status=?, last_poll=? WHERE id=?",
+                (status, now, dev['id'])
+            )
+            for oid_name, value in metrics.items():
+                if value is not None:
+                    conn.execute(
+                        "INSERT INTO snmp_metrics (device_id, oid, value, timestamp) VALUES (?,?,?,?)",
+                        (dev['id'], oid_name, float(value), now)
+                    )
+            print(f"[SNMP] polled {dev['ip']} status={status} metrics={sum(1 for v in metrics.values() if v is not None)}")
+        conn.commit()
+        notify_agents_updated()
+    finally:
+        close_db(conn)
+
+def start_snmp_poller():
+    """启动后台 SNMP 轮询线程"""
+    def loop():
+        while True:
+            poll_snmp_devices()
+            time.sleep(SNMP_INTERVAL)
+    if SNMP_AVAILABLE:
+        t = threading.Thread(target=loop, daemon=True)
+        t.start()
+        print("[SNMP] poller started, interval=%ds" % SNMP_INTERVAL)
+    else:
+        print("[SNMP] poller disabled (pysnmp not available)")
+
+# ─── SNMP Trap 接收器 ────────────────────────────────────────────────────────
+
+from pysnmp.proto.api import v2c
+
+def start_snmp_trap_receiver(port=10162):
+    """启动 UDP 服务器接收 SNMP Trap，存入数据库"""
+    import socket
+
+    def parse_trap(data):
+        """简单解析 SNMP Trap PDU"""
+        try:
+            # v2c Trap 格式: community + PDU
+            # PDU: request-id, error-status, error-index, varbinds
+            # varbinds: (OID, value) 列表
+            msg = {}
+            varbinds = []
+            # 简单解析：尝试提取 community 字符串和 varbind 对
+            # 格式大致是: community_string(压测) + 0x30(pdu) + ...
+            # 这里做简化：把 trap 里包含的字符串和 OID 提取出来
+            # 实际生产建议用 pysnmp 的 recvTrapIndication 回调
+            return {
+                'source': data[:20].hex() if len(data) >= 20 else data.hex(),
+                'raw_len': len(data),
+                'status': 'received'
+            }
+        except Exception as e:
+            return {'status': 'parse_error', 'error': str(e)}
+
+    def handle_trap(sock):
+        try:
+            data, addr = sock.recvfrom(4096)
+            print(f"[SNMP Trap] received from {addr[0]}:{addr[1]}, {len(data)} bytes")
+            result = parse_trap(data)
+            # 查找对应的 snmp_device
+            conn = get_db()
+            try:
+                dev = conn.execute(
+                    "SELECT * FROM snmp_devices WHERE ip=?", (addr[0],)
+                ).fetchone()
+                if dev:
+                    now = time.time()
+                    conn.execute(
+                        "UPDATE snmp_devices SET status='online', last_poll=? WHERE id=?",
+                        (now, dev['id'])
+                    )
+                    # 写入一条 trap 记录（用 oid='trap', value=1 标记）
+                    conn.execute(
+                        "INSERT INTO snmp_metrics (device_id, oid, value, timestamp) VALUES (?,?,?,?)",
+                        (dev['id'], 'trap', 1.0, now)
+                    )
+                    conn.commit()
+                    print(f"[SNMP Trap] matched device {dev['device_name']}({dev['ip']})")
+                    notify_agents_updated()
+                else:
+                    print(f"[SNMP Trap] unknown device {addr[0]}")
+            finally:
+                close_db(conn)
+        except Exception as e:
+            print(f"[SNMP Trap] error: {e}")
+
+    def trap_server():
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            sock.bind(('', port))
+            sock.settimeout(1.0)
+            print(f"[SNMP Trap] receiver listening on UDP {port}")
+            while True:
+                try:
+                    handle_trap(sock)
+                except socket.timeout:
+                    continue
+                except Exception as e:
+                    print(f"[SNMP Trap] server error: {e}")
+        except Exception as e:
+            print(f"[SNMP Trap] bind error: {e}")
+        finally:
+            sock.close()
+
+    t = threading.Thread(target=trap_server, daemon=True)
+    t.start()
+    print(f"[SNMP Trap] receiver started on UDP {port}")
 
 # ─── 数据模型 ────────────────────────────────────────────────────────────────
 
@@ -165,6 +379,7 @@ class ProbeReport(BaseModel):
     target_reachable: bool = True
     target_name: Optional[str] = ""
     target_rtt_ms: Optional[float] = None
+    subnets: Optional[str] = ""
 
 class TopologyDevice(BaseModel):
     ip: str
@@ -486,6 +701,116 @@ def delete_agent_admin(agent_id: str):
     finally:
         close_db(conn)
 
+# ─── SNMP 设备管理 API ────────────────────────────────────────────────────
+
+class SNMPDeviceCreate(BaseModel):
+    ip: str
+    community: str = "public"
+    device_name: str = ""
+    device_type: str = "router"
+
+class SNMPDeviceUpdate(BaseModel):
+    ip: Optional[str] = None
+    community: Optional[str] = None
+    device_name: Optional[str] = None
+    device_type: Optional[str] = None
+
+@app.get("/api/admin/snmp")
+def list_snmp_devices():
+    """列出所有 SNMP 设备"""
+    conn = get_db()
+    try:
+        devices = conn.execute("SELECT * FROM snmp_devices ORDER BY created_at DESC").fetchall()
+        return [dict(r) for r in devices]
+    finally:
+        close_db(conn)
+
+@app.post("/api/admin/snmp")
+def create_snmp_device(data: SNMPDeviceCreate):
+    """添加 SNMP 监控设备"""
+    conn = get_db()
+    try:
+        now = time.time()
+        conn.execute(
+            "INSERT INTO snmp_devices (ip, community, device_name, device_type, created_at) VALUES (?,?,?,?,?)",
+            (data.ip, data.community, data.device_name, data.device_type, now)
+        )
+        conn.commit()
+        device = conn.execute("SELECT * FROM snmp_devices WHERE ip=?", (data.ip,)).fetchone()
+        return dict(device)
+    finally:
+        close_db(conn)
+
+@app.patch("/api/admin/snmp/{device_id}")
+def update_snmp_device(device_id: int, data: SNMPDeviceUpdate):
+    """更新 SNMP 设备"""
+    conn = get_db()
+    try:
+        c = conn.execute("SELECT id FROM snmp_devices WHERE id=?", (device_id,))
+        if not c.fetchone():
+            raise HTTPException(status_code=404, detail="设备不存在")
+        fields, values = [], []
+        for key, val in {"ip": data.ip, "community": data.community,
+                         "device_name": data.device_name, "device_type": data.device_type}.items():
+            if val is not None:
+                fields.append(f"{key}=?"); values.append(val)
+        if not fields:
+            return {"ok": True}
+        values.append(device_id)
+        conn.execute("UPDATE snmp_devices SET " + ",".join(fields) + " WHERE id=?", values)
+        conn.commit()
+        return {"ok": True}
+    finally:
+        close_db(conn)
+
+@app.delete("/api/admin/snmp/{device_id}")
+def delete_snmp_device(device_id: int):
+    """删除 SNMP 设备"""
+    conn = get_db()
+    try:
+        conn.execute("DELETE FROM snmp_metrics WHERE device_id=?", (device_id,))
+        conn.execute("DELETE FROM snmp_devices WHERE id=?", (device_id,))
+        conn.commit()
+        return {"ok": True}
+    finally:
+        close_db(conn)
+
+@app.get("/api/admin/snmp/{device_id}/metrics")
+def get_snmp_metrics(device_id: int, limit: int = 60):
+    """获取 SNMP 设备历史指标"""
+    conn = get_db()
+    try:
+        c = conn.execute(
+            "SELECT * FROM snmp_metrics WHERE device_id=? ORDER BY timestamp DESC LIMIT ?",
+            (device_id, limit)
+        )
+        return [dict(r) for r in c.fetchall()]
+    finally:
+        close_db(conn)
+
+@app.post("/api/admin/snmp/{device_id}/poll")
+def poll_snmp_device_now(device_id: int):
+    """手动触发一次 SNMP 轮询"""
+    conn = get_db()
+    try:
+        device = conn.execute("SELECT * FROM snmp_devices WHERE id=?", (device_id,)).fetchone()
+        if not device:
+            raise HTTPException(status_code=404, detail="设备不存在")
+        metrics = snmp_get(device['ip'], device['community'], SNMP_OIDS)
+        now = time.time()
+        status = "online" if any(v is not None for v in metrics.values()) else "offline"
+        conn.execute("UPDATE snmp_devices SET status=?, last_poll=? WHERE id=?", (status, now, device_id))
+        for oid_name, value in metrics.items():
+            if value is not None:
+                conn.execute(
+                    "INSERT INTO snmp_metrics (device_id, oid, value, timestamp) VALUES (?,?,?,?)",
+                    (device_id, oid_name, float(value), now)
+                )
+        conn.commit()
+        return {"ok": True, "status": status, "metrics": metrics}
+    finally:
+        close_db(conn)
+
 # ─── 数据上报（Agent 用，无认证） ───────────────────────────────────────────
 
 @app.post("/api/{agent_id}/report")
@@ -524,6 +849,8 @@ def report_probe(agent_id: str, data: ProbeReport):
              data.target_name, data.target_rtt_ms)
         )
         conn.execute("UPDATE agents SET last_seen = ? WHERE id = ?", (now, agent_id))
+        if data.subnets:
+            conn.execute("UPDATE agents SET subnets = ? WHERE id = ?", (data.subnets, agent_id))
         conn.commit()
         # 实时推送更新到所有浏览器
         asyncio.get_event_loop().call_soon_threadsafe(notify_agents_updated)
@@ -649,6 +976,14 @@ def admin_page():
         return FileResponse(str(admin_path))
     return {"message": "Not found"}
 
+@app.get("/download")
+def download_page():
+    """下载中心"""
+    download_path = Path(__file__).parent / "static" / "download.html"
+    if download_path.exists():
+        return FileResponse(str(download_path))
+    return {"message": "Not found"}
+
 @app.get("/api/qr")
 def generate_qr(text: str = ""):
     if not text:
@@ -677,7 +1012,9 @@ async def events():
 @app.on_event("startup")
 def startup():
     init_db()
-    print("[Server] 企业网络监控平台启动 v0.1")
+    start_snmp_poller()
+    start_snmp_trap_receiver()
+    print("[Server] 企业网络监控平台启动 v0.4")
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

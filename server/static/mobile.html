@@ -185,6 +185,15 @@ body {
   <div id="content">
     <div class="loading">加载中...</div>
   </div>
+  <div id="qr-section" style="display:none;" class="card">
+    <div style="display:flex;align-items:center;gap:14px;">
+      <img id="dev-qr" src="" style="width:72px;height:72px;border-radius:8px;border:1px solid #f0f0f0;" alt="二维码">
+      <div>
+        <div style="font-size:13px;color:#86868b;margin-bottom:4px;">手机扫码查看</div>
+        <div style="font-size:11px;color:#aeaeb2;">截图保存，转发给他人</div>
+      </div>
+    </div>
+  </div>
   <div class="last-update" id="last-update"></div>
   <button class="logout-btn" onclick="showAgents()" style="display:block;margin:12px auto 0;">← 返回设备列表</button>
 </div>
@@ -265,6 +274,10 @@ function renderAgentList(agents) {
 function selectAgent(agentId) {
   CURRENT_AGENT = agentId;
   localStorage.setItem("nm_agent_id", agentId);
+  var mobileUrl = SERVER + '/mobile?id=' + agentId;
+  var qrUrl = SERVER + '/api/qr?text=' + encodeURIComponent(mobileUrl);
+  document.getElementById('dev-qr').src = qrUrl;
+  document.getElementById('qr-section').style.display = 'block';
   loadData();
   showView('view-monitor');
 }

@@ -206,7 +206,7 @@ def get_targets():
         return cfg["targets"]
     return DEFAULT_TARGETS
 
-def run_probe():
+def run_probe(subnets=None):
     targets = get_targets()
     gateway = get_gateway()
     gw_ok, gw_rtt, gw_loss = ping_multi(gateway)
@@ -232,6 +232,7 @@ def run_probe():
         "target_reachable": target_ok,
         "target_name": target_name,
         "target_rtt_ms": target_rtt,
+        "subnets": ",".join(subnets) if subnets else "",
     }
 
 # ─── 自注册 ───────────────────────────────────────────────────────────────
@@ -889,6 +890,10 @@ def main():
         log.info("已配置 Agent ID: %s", agent_id)
         # 开机自启保持不变
 
+    # 确保 subnets 在循环作用域内
+    cfg = load_config()
+    subnets = (cfg or {}).get("subnets", [])
+
     # ── 启动托盘 ──
     tray_icon = setup_tray(agent_id, company_name)
     if not tray_icon:
@@ -902,7 +907,7 @@ def main():
 
     while True:
         try:
-            data = run_probe()
+            data = run_probe(subnets)
             result = report(data, agent_id)
             consecutive_errors = 0 if result else consecutive_errors + 1
 
