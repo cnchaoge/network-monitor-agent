@@ -667,6 +667,26 @@ def show_setup_window(company_name=""):
     return result["company_name"], result["autostart"], location, result["subnets"], result["targets"]
 
 _about_window_ref = None
+_tk_queue = None
+
+def _init_tk_queue():
+    """初始化 Tk 任务队列，Tk 窗口在独立 daemon 线程的事件循环中创建"""
+    global _tk_queue
+    import queue
+    import threading
+
+    def _gui_thread():
+        import tkinter as tk
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-alpha", 0)
+        root.protocol("WM_DELETE_WINDOW", lambda: None)
+        root.mainloop()
+
+    _tk_queue = queue.Queue()
+    t = threading.Thread(target=_gui_thread, daemon=True)
+    t.start()
+
 
 def show_about_window():
     global _about_window_ref
@@ -711,11 +731,8 @@ def show_about_window():
         win.focus_force()
         win.grab_set()
 
-    root = tk._default_root
-    if root:
-        root.after(0, _do_show)
-    else:
-        _do_show()
+    if _tk_queue:
+        _tk_queue.put(_do_show)
 
 
 _settings_window_ref = None
@@ -810,12 +827,8 @@ def show_settings_window():
             _settings_window_ref = None
         win.protocol("WM_DELETE_WINDOW", on_destroy)
 
-    # 调度到主线程
-    root = tk._default_root
-    if root:
-        root.after(0, _do_show)
-    else:
-        _do_show()
+    if _tk_queue:
+        _tk_queue.put(_do_show)
 
 
 def show_success_window(company_name, agent_id, location=""):
@@ -955,6 +968,9 @@ def main():
     log.info("网络监控 Agent 启动 v0.4")
     log.info("服务端: %s", SERVER_URL)
     log.info("=" * 40)
+
+    # 初始化 Tk 任务队列（供托盘回调跨线程创建窗口）
+    _init_tk_queue()
 
     # Windows 上隐藏控制台窗口（pythonw.exe 自动无窗口）
     if sys.platform == "win32":
