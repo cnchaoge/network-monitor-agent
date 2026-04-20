@@ -666,102 +666,156 @@ def show_setup_window(company_name=""):
     location = ", ".join(result["subnets"])
     return result["company_name"], result["autostart"], location, result["subnets"], result["targets"]
 
+_about_window_ref = None
+
 def show_about_window():
-    import tkinter as tk
-    import webbrowser
+    global _about_window_ref
+    if _about_window_ref is not None:
+        try:
+            _about_window_ref.focus_force()
+            return
+        except Exception:
+            _about_window_ref = None
 
-    win = tk.Toplevel()
-    win.title("关于")
-    win.geometry("360x200")
-    win.resizable(False, False)
-    win.attributes("-topmost", True)
-    win.update_idletasks()
-    cx = (win.winfo_screenwidth() - 360) // 2
-    cy = (win.winfo_screenheight() - 200) // 2
-    win.geometry(f"360x200+{cx}+{cy}")
-    win.transient()
+    def _do_show():
+        global _about_window_ref
+        import tkinter as tk
+        import webbrowser
 
-    tk.Label(win, text="企业网络监控", font=("Arial", 16, "bold")).pack(pady=16)
-    tk.Label(win, text=f"版本：v{__version__}", font=("Arial", 11)).pack(pady=4)
-    tk.Label(win, text="下载地址：", font=("Arial", 10), fg="#666").pack(pady=(12, 2))
-    link = tk.Label(win, text="http://www.lanwatch.net/download", font=("Arial", 10), fg="#1a73e8", cursor="hand2")
-    link.pack()
-    link.bind("<Button-1>", lambda _: webbrowser.open("http://www.lanwatch.net/download"))
-    tk.Button(win, text="确定", command=win.destroy, font=("Arial", 10), width=10).pack(pady=12)
-    win.protocol("WM_DELETE_WINDOW", win.destroy)
-    win.focus_force()
-    win.grab_set()
-    win.wait_window()
+        win = tk.Toplevel()
+        _about_window_ref = win
+        win.title("关于")
+        win.geometry("360x200")
+        win.resizable(False, False)
+        win.attributes("-topmost", True)
+        win.update_idletasks()
+        cx = (win.winfo_screenwidth() - 360) // 2
+        cy = (win.winfo_screenheight() - 200) // 2
+        win.geometry(f"360x200+{cx}+{cy}")
 
+        tk.Label(win, text="企业网络监控", font=("Arial", 16, "bold")).pack(pady=16)
+        tk.Label(win, text=f"版本：v{__version__}", font=("Arial", 11)).pack(pady=4)
+        tk.Label(win, text="下载地址：", font=("Arial", 10), fg="#666").pack(pady=(12, 2))
+        link = tk.Label(win, text="http://www.lanwatch.net/download", font=("Arial", 10), fg="#1a73e8", cursor="hand2")
+        link.pack()
+        link.bind("<Button-1>", lambda _: webbrowser.open("http://www.lanwatch.net/download"))
+
+        def on_close():
+            global _about_window_ref
+            _about_window_ref = None
+            win.destroy()
+
+        tk.Button(win, text="确定", command=on_close, font=("Arial", 10), width=10).pack(pady=12)
+        win.protocol("WM_DELETE_WINDOW", on_close)
+        win.transient()
+        win.focus_force()
+        win.grab_set()
+
+    root = tk._default_root
+    if root:
+        root.after(0, _do_show)
+    else:
+        _do_show()
+
+
+_settings_window_ref = None
 
 def show_settings_window():
-    import tkinter as tk
-    from tkinter import messagebox
+    """通过 after 调度到主线程执行，避免 pystray 子线程创建 tkinter 窗口的问题"""
+    def _do_show():
+        global _settings_window_ref
+        if _settings_window_ref is not None:
+            try:
+                _settings_window_ref.focus_force()
+                return
+            except Exception:
+                _settings_window_ref = None
 
-    win = tk.Toplevel()
-    win.title("设置")
-    win.geometry("360x220")
-    win.resizable(False, False)
-    win.attributes("-topmost", True)
-    win.update_idletasks()
-    cx = (win.winfo_screenwidth() - 360) // 2
-    cy = (win.winfo_screenheight() - 220) // 2
-    win.geometry(f"360x220+{cx}+{cy}")
+        import tkinter as tk
+        from tkinter import messagebox
 
-    tk.Label(win, text="企业网络监控", font=("Arial", 14, "bold")).pack(pady=12)
+        win = tk.Toplevel()
+        _settings_window_ref = win
+        win.title("设置")
+        win.geometry("360x240")
+        win.resizable(False, False)
+        win.attributes("-topmost", True)
+        win.update_idletasks()
+        cx = (win.winfo_screenwidth() - 360) // 2
+        cy = (win.winfo_screenheight() - 240) // 2
+        win.geometry(f"360x240+{cx}+{cy}")
 
-    autostart_var = tk.BooleanVar(value=is_autostart_enabled())
+        tk.Label(win, text="企业网络监控", font=("Arial", 14, "bold")).pack(pady=12)
 
-    def on_autostart_changed():
-        enabled = autostart_var.get()
-        if winreg:
-            ok = set_autostart(enabled)
-            if ok:
-                log.info("[设置] 开机自启已%s", "开启" if enabled else "关闭")
+        autostart_var = tk.BooleanVar(value=is_autostart_enabled())
+
+        def on_autostart_changed():
+            enabled = autostart_var.get()
+            if winreg:
+                ok = set_autostart(enabled)
+                if ok:
+                    log.info("[设置] 开机自启已%s", "开启" if enabled else "关闭")
+                else:
+                    log.warning("[设置] 开机自启设置失败")
+                    autostart_var.set(not enabled)
             else:
-                log.warning("[设置] 开机自启设置失败")
-                autostart_var.set(not enabled)
-        else:
-            autostart_var.set(False)
-            messagebox.showwarning("提示", "当前环境不支持开机自启设置")
+                autostart_var.set(False)
+                messagebox.showwarning("提示", "当前环境不支持开机自启设置")
 
-    tk.Checkbutton(
-        win, text="开机自动启动", variable=autostart_var,
-        font=("Arial", 11), command=on_autostart_changed
-    ).pack(anchor="w", padx=40, pady=8)
+        tk.Checkbutton(
+            win, text="开机自动启动", variable=autostart_var,
+            font=("Arial", 11), command=on_autostart_changed,
+            indicatoron=True
+        ).pack(anchor="w", padx=40, pady=8)
 
-    tk.Frame(win, height=1, bg="#e5e5ea").pack(fill="x", padx=20, pady=8)
+        tk.Frame(win, height=1, bg="#e5e5ea").pack(fill="x", padx=20, pady=8)
 
-    def on_uninstall():
-        if not messagebox.askyesno("卸载确认", "确定要卸载网络守护吗？\n\n将删除所有配置并停止监控。"):
-            return
-        log.info("[卸载] 开始卸载...")
-        try:
-            if os.path.exists(CONFIG_FILE):
-                os.remove(CONFIG_FILE)
-                log.info("[卸载] 配置已删除")
-        except Exception as e:
-            log.error("[卸载] 删除配置失败: %s", e)
-        if winreg:
-            set_autostart(False)
-        win.destroy()
-        time.sleep(1)
-        os._exit(0)
+        def on_uninstall():
+            if not messagebox.askyesno("卸载确认", "确定要卸载网络守护吗？\n\n将删除所有配置并停止监控。"):
+                return
+            log.info("[卸载] 开始卸载...")
+            try:
+                if os.path.exists(CONFIG_FILE):
+                    os.remove(CONFIG_FILE)
+                    log.info("[卸载] 配置已删除")
+            except Exception as e:
+                log.error("[卸载] 删除配置失败: %s", e)
+            if winreg:
+                set_autostart(False)
+            win.destroy()
+            time.sleep(1)
+            os._exit(0)
 
-    tk.Button(
-        win, text="卸载网络守护", command=on_uninstall,
-        font=("Arial", 11), fg="#ff3b30", relief="groove",
-        width=20, height=1
-    ).pack(pady=12)
+        def on_close():
+            global _settings_window_ref
+            _settings_window_ref = None
+            win.destroy()
 
-    tk.Button(win, text="关闭", command=win.destroy, font=("Arial", 10),
-              width=10).pack(pady=8)
+        tk.Button(
+            win, text="卸载网络守护", command=on_uninstall,
+            font=("Arial", 11), fg="#ff3b30", relief="groove",
+            width=20, height=1
+        ).pack(pady=12)
 
-    win.protocol("WM_DELETE_WINDOW", win.destroy)
-    win.transient()
-    win.focus_force()
-    win.grab_set()
-    win.wait_window()
+        tk.Button(win, text="关闭", command=on_close, font=("Arial", 10),
+                  width=10).pack(pady=8)
+
+        win.protocol("WM_DELETE_WINDOW", on_close)
+        win.transient()
+        win.focus_force()
+        win.grab_set()
+
+        def on_destroy():
+            global _settings_window_ref
+            _settings_window_ref = None
+        win.protocol("WM_DELETE_WINDOW", on_destroy)
+
+    # 调度到主线程
+    root = tk._default_root
+    if root:
+        root.after(0, _do_show)
+    else:
+        _do_show()
 
 
 def show_success_window(company_name, agent_id, location=""):
