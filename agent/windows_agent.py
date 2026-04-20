@@ -272,6 +272,23 @@ def report(data, agent_id):
         log.warning("上报失败: %s", e)
         return None
 
+def report_uninstall(agent_id):
+    """通知服务端该设备已卸载"""
+    try:
+        req = urllib.request.Request(
+            SERVER_URL + "/api/" + agent_id + "/uninstall",
+            data=b"{}",
+            headers={"Content-Type": "application/json"},
+            method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            result = json.loads(resp.read())
+            log.info("[卸载] 通知服务端成功: %s", result)
+            return result
+    except Exception as e:
+        log.warning("[卸载] 通知服务端失败: %s", e)
+        return None
+
 # ─── 局域网拓扑扫描 ────────────────────────────────────────────────────
 
 OUI_VENDOR = {
@@ -791,6 +808,10 @@ def show_settings_window():
             if not messagebox.askyesno("卸载确认", "确定要卸载网络守护吗？\n\n将删除所有配置并停止监控。"):
                 return
             log.info("[卸载] 开始卸载...")
+            # 通知服务端该设备已卸载
+            cfg = load_config()
+            if cfg and cfg.get("agent_id"):
+                report_uninstall(cfg["agent_id"])
             try:
                 if os.path.exists(CONFIG_FILE):
                     os.remove(CONFIG_FILE)
